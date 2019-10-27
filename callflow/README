@@ -1,0 +1,2 @@
+Demostrates basic features of HMP user app.
+Waits for call, when call received it playback audiofile and drop the call.

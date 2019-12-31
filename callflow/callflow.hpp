@@ -187,6 +187,7 @@ void Deinit();
 void process_event( void );
 void InitChannels();
 void RegNewCall( int LineNo, CRN crn, int State );
+int GetSIPRdPN( GC_PARM_BLK	*paramblkp, std::string & RdPN, std::string & reason );
 int  GetCallNdx( int LineNo, CRN crn );
 int  GetIndexByVoice( int );
 int  FindParam( char *ParamName );

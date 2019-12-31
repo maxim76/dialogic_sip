@@ -449,7 +449,7 @@ void process_event( void )
 	int		hdDev;
 	DX_CST		*cstp;
 	GC_PARM_BLK	*parmblkp = NULL;  // gc_util_insert_parm_val creates data struct in memory itself
-	GC_PARM_DATAP curParm = NULL;
+	//GC_PARM_DATAP curParm = NULL;
 
 	long		state;
 
@@ -489,46 +489,24 @@ void process_event( void )
 			LogGC( index, evttype, "Failed to open channel", 2 );
 			break;
 		case GCEV_OFFERED:
+		{
 			ChannelInfo[index].PState = PST_IDLE;
 			RegNewCall( index, TempCRN, GCST_OFFERED );
 			if(gc_GetCallInfo( TempCRN, DESTINATION_ADDRESS, st ) != -1)
 				strncpy( ChannelInfo[index].CdPN, st, MAX_NUMSIZE ); else ChannelInfo[index].CdPN[0] = 0;
 			if(gc_GetCallInfo( TempCRN, ORIGINATION_ADDRESS, st ) != -1)
 				strncpy( ChannelInfo[index].CgPN, st, MAX_NUMSIZE ); else ChannelInfo[index].CgPN[0] = 0;
-			ChannelInfo[index].RdPN[0] = 0;
-
-
-			parmblkp = (GC_PARM_BLKP)metaevent.extevtdatap;
-
-			// Get Diversion number (copy from CCAF)
-			while(((curParm = gc_util_next_parm( parmblkp, curParm )) != NULL))
+			std::string RdPN;
+			std::string reason;
+			if(GetSIPRdPN( (GC_PARM_BLKP)metaevent.extevtdatap, RdPN, reason ) != -1)
 			{
-				//printf("Extracting next param: code 0x%x\n", curParm->parm_ID);
-				switch(curParm->parm_ID)
-				{
-				case IPPARM_DIVERSION_URI:
-				{
-					//printf("IPPARM_DIVERSION_URI found\n");
-					char szCnum[GC_ADDRSIZE];
-					memcpy( szCnum, curParm->value_buf, curParm->value_size );
-					szCnum[curParm->value_size] = 0;
-					//printf("Diversion URI: [%s]\n", szCnum);
-
-					int firstPos = std::find( szCnum, szCnum + curParm->value_size, ':' ) - szCnum;
-					int lastPos = std::find( szCnum + firstPos + 1, szCnum + curParm->value_size, ';' ) - szCnum;
-					if((firstPos < curParm->value_size) && (lastPos < curParm->value_size))
-					{
-						szCnum[lastPos] = 0;
-						//printf("CNum: [%s]\n", szCnum + firstPos + 1);
-						strncpy( ChannelInfo[index].RdPN, szCnum + firstPos + 1, MAX_NUMSIZE );
-					}
-
-					break;
-				}
-				}
+				std::string fullRdPNInfo = RdPN + " (reason=" + reason + ")";
+				strncpy( ChannelInfo[index].RdPN, fullRdPNInfo.c_str(), MAX_NUMSIZE );
 			}
-			gc_util_delete_parm_blk( parmblkp );
-
+			else
+			{
+				ChannelInfo[index].RdPN[0] = 0;
+			}
 
 			sprintf( str, "CgPN:[%s] CdPN:[%s] RdPN:[%s]", ChannelInfo[index].CgPN, ChannelInfo[index].CdPN, ChannelInfo[index].RdPN );
 			LogGC( index, evttype, str, 0 );
@@ -555,6 +533,7 @@ void process_event( void )
 				}
 			}
 			break;
+		}
 		case GCEV_CALLPROC:
 			LogGC( index, evttype, "", 0 );
 			if(SendACM > 0) {
@@ -800,6 +779,48 @@ void process_event( void )
 			LogDX( index, evttype, "Unsupported event", 2 );
 		}
 	}
+}
+//---------------------------------------------------------------------------
+int GetSIPRdPN( GC_PARM_BLK	*paramblkp, std::string & RdPN, std::string & reason )
+{
+	bool result = false;
+	GC_PARM_DATAP curParm = NULL;
+	while(((curParm = gc_util_next_parm( paramblkp, curParm )) != NULL))
+	{
+		switch(curParm->parm_ID)
+		{
+		case IPPARM_DIVERSION_URI:
+			// read full param value first. It contains a lot of other attributes and can be very long
+			// Example is: 
+			// <sip:xxxxxxx@xxx.xxx.xxx.xxx;user=phone>;reason=user-busy;counter=1;privacy=off;screen=no
+			std::string diversionURI( (char *)curParm->value_buf, (size_t)curParm->value_size );
+
+			// Extract RdPN
+			std::string rdpnStartTag( "sip:" );
+			std::string rdpnEndTag( ";" );
+			size_t beginRdPN = diversionURI.find( rdpnStartTag );
+			size_t endRdPN = diversionURI.find( rdpnEndTag, beginRdPN );
+			if((beginRdPN != std::string::npos) && (endRdPN != std::string::npos))
+			{
+				RdPN = diversionURI.substr(beginRdPN + rdpnStartTag.size(), endRdPN - beginRdPN - rdpnStartTag.size() );
+				result = true;
+			}
+
+			// Extract Diversion reason
+			std::string reasonStartTag( "reason=" );
+			std::string reasonEndTag( ";" );
+			size_t beginReason = diversionURI.find( reasonStartTag );
+			size_t endReason = diversionURI.find( reasonEndTag, beginReason );
+			if((beginReason != std::string::npos) && (endReason != std::string::npos))
+			{
+				reason = diversionURI.substr( beginReason + reasonStartTag.size(), endReason - beginReason - reasonStartTag.size() );
+			}
+
+			break;
+		}
+	}
+	gc_util_delete_parm_blk( paramblkp );
+	return result;
 }
 //---------------------------------------------------------------------------
 void RegNewCall( int LineNo, CRN crn, int State ) {

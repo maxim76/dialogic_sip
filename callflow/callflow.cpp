@@ -18,6 +18,7 @@
 #endif
 
 #include <algorithm>
+#include <unordered_map>
 
 #include "callflow.hpp"
 
@@ -498,17 +499,20 @@ void process_event( void )
 				strncpy( ChannelInfo[index].CgPN, st, MAX_NUMSIZE ); else ChannelInfo[index].CgPN[0] = 0;
 			std::string RdPN;
 			std::string reason;
-			if(GetSIPRdPN( (GC_PARM_BLKP)metaevent.extevtdatap, RdPN, reason ) != -1)
+			int reasonCodeIP;
+			if (GetSIPRdPN( (GC_PARM_BLKP)metaevent.extevtdatap, RdPN, reason, &reasonCodeIP ))
 			{
 				std::string fullRdPNInfo = RdPN + " (reason=" + reason + ")";
 				strncpy( ChannelInfo[index].RdPN, fullRdPNInfo.c_str(), MAX_NUMSIZE );
+				ChannelInfo[index].reasonCode = reasonCodeIP;
 			}
 			else
 			{
 				ChannelInfo[index].RdPN[0] = 0;
+				ChannelInfo[index].reasonCode = 0;
 			}
 
-			sprintf( str, "CgPN:[%s] CdPN:[%s] RdPN:[%s]", ChannelInfo[index].CgPN, ChannelInfo[index].CdPN, ChannelInfo[index].RdPN );
+			sprintf( str, "CgPN:[%s] CdPN:[%s] RdPN:[%s] (reason=%d)", ChannelInfo[index].CgPN, ChannelInfo[index].CdPN, ChannelInfo[index].RdPN, ChannelInfo[index].reasonCode );
 			LogGC( index, evttype, str, 0 );
 			if(SendCallAck > 0) {
 				GC_CALLACK_BLK callack; /* type & number of digits to collect */
@@ -781,9 +785,16 @@ void process_event( void )
 	}
 }
 //---------------------------------------------------------------------------
-int GetSIPRdPN( GC_PARM_BLK	*paramblkp, std::string & RdPN, std::string & reason )
+int GetSIPRdPN( GC_PARM_BLK	*paramblkp, std::string & RdPN, std::string & reason, int *reasonCode )
 {
+	std::unordered_map<std::string, int> sipReasons;
+	sipReasons = {
+		{"unavailable", 480},
+		{"busy", 486},
+	};
 	bool result = false;
+	reason = "";
+	*reasonCode = 0;
 	GC_PARM_DATAP curParm = NULL;
 	while(((curParm = gc_util_next_parm( paramblkp, curParm )) != NULL))
 	{
@@ -814,8 +825,17 @@ int GetSIPRdPN( GC_PARM_BLK	*paramblkp, std::string & RdPN, std::string & reason
 			if((beginReason != std::string::npos) && (endReason != std::string::npos))
 			{
 				reason = diversionURI.substr( beginReason + reasonStartTag.size(), endReason - beginReason - reasonStartTag.size() );
+				// Convert string reason into numeric
+				auto iter = sipReasons.find( "reason" );
+				if(iter != sipReasons.end())
+				{
+					*reasonCode = iter->second;
+				}
+				else
+				{
+					*reasonCode = 0;
+				}
 			}
-
 			break;
 		}
 	}

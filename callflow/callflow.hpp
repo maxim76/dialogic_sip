@@ -132,6 +132,7 @@ typedef struct {   /////// Дескриптор ресурса
 	char CgPN[MAX_NUMSIZE];
 	char CdPN[MAX_NUMSIZE];
 	char RdPN[MAX_NUMSIZE];
+	int reasonCode;	// Причина переадресации
 	int blocked;    // Линия разблокирована/заблокирована
 	int VReady;     // признак готовности голосового ресурса. Будет использватся перед WaitCall т.к. обнаружено что иногде на срабатывает GetRecourceH
 	DX_IOTT iott;
@@ -187,7 +188,7 @@ void Deinit();
 void process_event( void );
 void InitChannels();
 void RegNewCall( int LineNo, CRN crn, int State );
-int GetSIPRdPN( GC_PARM_BLK	*paramblkp, std::string & RdPN, std::string & reason );
+int GetSIPRdPN( GC_PARM_BLK	*paramblkp, std::string & RdPN, std::string & reason, int * reasonCode );
 int  GetCallNdx( int LineNo, CRN crn );
 int  GetIndexByVoice( int );
 int  FindParam( char *ParamName );

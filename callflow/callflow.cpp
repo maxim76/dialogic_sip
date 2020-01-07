@@ -53,16 +53,19 @@ int main( void )
 
 	// Forever loop where the main work is done - wait for an event or user requested exit
 	Log( TRC_CORE, -1, "Entering Working State", 0 );
-	for(;;) {
+	for(;;)
+	{
 		ret = sr_waitevt( 500 );					// 1/2 second
-		if(ret != -1) {					// i.e. not timeout
+		if(ret != -1)
+		{					// i.e. not timeout
 			process_event();
 		}
-		if(interrupted == YES) {				// flag set in intr_hdlr() 
-			//
-			// Check here if all channels already cleared and closed
-			// And if so - can exit
-			//
+		if(interrupted == YES)
+		{				// flag set in intr_hdlr() 
+//
+// Check here if all channels already cleared and closed
+// And if so - can exit
+//
 			return 0;
 		}
 
@@ -75,7 +78,8 @@ int main( void )
 *		RETURNS: None
 *	  CAUTIONS: NA
 ****************************************************************/
-void init_srl_mode() {
+void init_srl_mode()
+{
 	/*
 	SRL MODEL TYPE - Single Threaded Async, event handler will be called in the Main thread
 	*/
@@ -87,13 +91,15 @@ void init_srl_mode() {
 
 	/* Set SRL mode */
 #ifdef _WIN32
-	if(sr_setparm( SRL_DEVICE, SR_MODELTYPE, &mode ) == -1) {
+	if(sr_setparm( SRL_DEVICE, SR_MODELTYPE, &mode ) == -1)
+	{
 		Log( TRC_CORE, -1, "Unable to set to SR_STASYNC | SR_POLLMODE", 4 );
 		exit( 1 );
 	}
 	Log( TRC_CORE, -1, "SRL Model Set to SR_STASYNC | SR_POLLMODE", 0 );
 #else
-	if(sr_setparm( SRL_DEVICE, SR_MODEID, &mode ) == -1) {
+	if(sr_setparm( SRL_DEVICE, SR_MODEID, &mode ) == -1)
+	{
 		Log( TRC_CORE, -1, "Unable to set mode ID to SR_POLLMODE ", 4 );
 		exit( 1 );
 	}
@@ -117,7 +123,8 @@ static void intr_hdlr( void )
 	interrupted = YES;
 }
 //---------------------------------------------------------------------------
-void InitDialogicLibs() {
+void InitDialogicLibs()
+{
 	Log( TRC_CORE, -1, "Init dialogic Libs", 0 );
 	int i;
 	char str[LOGSTRSIZE];
@@ -136,12 +143,14 @@ void InitDialogicLibs() {
 	};
 
 	INIT_IP_VIRTBOARD( &virtBoard );
-	if(TotalChannels > 120) {
+	if(TotalChannels > 120)
+	{
 		virtBoard.total_max_calls = TotalChannels;
 		virtBoard.h323_max_calls = 0;
 		virtBoard.sip_max_calls = TotalChannels;
 	}
-	if(LocalIP != -1) {
+	if(LocalIP != -1)
+	{
 		virtBoard.localIP.ip_ver = IPVER4;
 		virtBoard.localIP.u_ipaddr.ipv4 = (unsigned int)LocalIP;//htonl(0x0ade0966);
 	}
@@ -152,7 +161,8 @@ void InitDialogicLibs() {
 	gcLibStart.num_cclibs = 4;
 
 	/* Start GlobalCall */
-	if(gc_Start( &gcLibStart ) != GC_SUCCESS) {
+	if(gc_Start( &gcLibStart ) != GC_SUCCESS)
+	{
 		sprintf( str, "gc_Start(startp = NULL) Failed" );
 		Log( TRC_CORE, -1, str, 4 );
 		exit( 1 );
@@ -166,15 +176,18 @@ void InitDialogicLibs() {
 		exit(1);
 	}
 	*/
-	if(gc_CCLibStatusEx( (char *)"GC_ALL_LIB", &cclib_status_all ) != GC_SUCCESS) {
+	if(gc_CCLibStatusEx( (char *)"GC_ALL_LIB", &cclib_status_all ) != GC_SUCCESS)
+	{
 		sprintf( str, "gc_CCLibStatusEx(GC_ALL_LIB, &cclib_status_all) Failed" );
 		Log( TRC_CORE, -1, str, 4 );
 		exit( 1 );
 	}
 	strcpy( str, " Call Control Library Status:" );
 	Log( TRC_CORE, -1, str, 0 );
-	for(i = 0; i < GC_TOTAL_CCLIBS; i++) {
-		switch(cclib_status_all.cclib_state[i].state) {
+	for(i = 0; i < GC_TOTAL_CCLIBS; i++)
+	{
+		switch(cclib_status_all.cclib_state[i].state)
+		{
 		case GC_CCLIB_CONFIGURED:
 			sprintf( str, "		  %s - configured", cclib_status_all.cclib_state[i].name );
 			break;
@@ -199,22 +212,26 @@ void InitDialogicLibs() {
 	Log( TRC_CORE, -1, str, 0 );
 }
 //---------------------------------------------------------------------------
-void Deinit() {
+void Deinit()
+{
 	Log( TRC_CORE, -1, "Deinitialization", 0 );
 	int i;
-	for(i = 0; i < TotalChannels; i++) {
+	for(i = 0; i < TotalChannels; i++)
+	{
 		if(gc_Close( ChannelInfo[i].hdLine ) != GC_SUCCESS)
 			Log( TRC_CORE, i, "gc_Close() error", 2 );
 	}
 }
 //---------------------------------------------------------------------------
-void Log( int Src, int Line, const char *msg, int Svrt ) {
+void Log( int Src, int Line, const char *msg, int Svrt )
+{
 	if((TraceMask & Src) == 0) return;
 	if(Svrt < SeverityFilter)  return;
 
 	char str[LOGSTRSIZE];
 	char sSrc[16];
-	switch(Src) {
+	switch(Src)
+	{
 	case TRC_CORE: strcpy( sSrc, "CORE" ); break;
 	case TRC_GC:   strcpy( sSrc, "GC  " ); break;
 	case TRC_DX:   strcpy( sSrc, "DX  " ); break;
@@ -228,7 +245,8 @@ void Log( int Src, int Line, const char *msg, int Svrt ) {
 	LogWrite( str );
 }
 //---------------------------------------------------------------------------
-void LogGC( int Line, int event, const char *msg, int Svrt ) {
+void LogGC( int Line, int event, const char *msg, int Svrt )
+{
 	if((TraceMask & TRC_GC) == 0) return;
 	if(Svrt < SeverityFilter)  return;
 	char str[LOGSTRSIZE];
@@ -242,7 +260,8 @@ void LogGC( int Line, int event, const char *msg, int Svrt ) {
 	LogWrite( str );
 }
 //---------------------------------------------------------------------------
-void LogDX( int Line, int event, const char *msg, int Svrt ) {
+void LogDX( int Line, int event, const char *msg, int Svrt )
+{
 	if((TraceMask & TRC_DX) == 0) return;
 	if(Svrt < SeverityFilter)  return;
 	char str[LOGSTRSIZE];
@@ -256,13 +275,15 @@ void LogDX( int Line, int event, const char *msg, int Svrt ) {
 	LogWrite( str );
 }
 //---------------------------------------------------------------------------
-void LogFunc( int Channel, const char *FuncName, int ret ) {
+void LogFunc( int Channel, const char *FuncName, int ret )
+{
 	char str[LOGSTRSIZE];
 	sprintf( str, "%s : %s", FuncName, (ret == GC_SUCCESS) ? "Ok" : "Error" );
 	Log( TRC_CORE, Channel, str, (ret == GC_SUCCESS) ? 0 : 2 );
 }
 //---------------------------------------------------------------------------
-void LogWrite( const char *msg ) {
+void LogWrite( const char *msg )
+{
 	time_t timer = time( NULL );
 	struct tm *tblock;
 	tblock = localtime( &timer );
@@ -270,7 +291,8 @@ void LogWrite( const char *msg ) {
 	//  printf("%s\n",msg);
 }
 //---------------------------------------------------------------------------
-int FindParam( char *ParamName ) {
+int FindParam( char *ParamName )
+{
 	int i;
 	for(i = 0; i < MAXPARAMS; i++)
 		if(strcmp( ParamName, Parameters[i].Name ) == 0)
@@ -278,7 +300,8 @@ int FindParam( char *ParamName ) {
 	return -1;
 }
 //---------------------------------------------------------------------------
-void LoadSettings() {
+void LoadSettings()
+{
 	Log( TRC_SETT, -1, "Load Settings", 0 );
 	TotalChannels = DEFAULT_TOTALCHANNELS;
 	TraceMask = DEFAULT_TRACEMASK;
@@ -292,104 +315,125 @@ void LoadSettings() {
 	int sl;
 	int n, np, nv;
 	FILE *f = fopen( "params.ini", "r" );
-	if(f == NULL) {
+	if(f == NULL)
+	{
 		Log( TRC_SETT, -1, "Cannot find 'params.ini'", 4 );
 		exit( 1 );
 	}
-	while(!feof( f )) {
+	while(!feof( f ))
+	{
 		if(fgets( str, MAXPARAMSIZE, f ) == NULL) break;
 		sl = strlen( str );
 		if(sl < 3) continue;
 		n = 0;
 		np = 0;
-		while((str[n] != '=') && (n < sl)) {
+		while((str[n] != '=') && (n < sl))
+		{
 			ParamName[np++] = str[n++];
 			ParamName[np] = 0;
 		}
 		if(n >= sl) continue; // String does not have part '=Value'
 		n++;  // Skip symbol '='
 		nv = 0;
-		while((n < sl) && (str[n] != 10) && (str[n] != 13)) {
+		while((n < sl) && (str[n] != 10) && (str[n] != 13))
+		{
 			ParamValue[nv++] = str[n++];
 			ParamValue[nv] = 0;
 		}
 		if((strlen( ParamName ) < 1) || (strlen( ParamValue ) < 1)) continue;
 		// At this point we have ParanName/ParamValue pair
 		int PN = FindParam( ParamName );
-		if(PN == -1) {
+		if(PN == -1)
+		{
 			sprintf( logstr, "Unknown parameter definition: %s=%s", ParamName, ParamValue );
 			Log( TRC_SETT, -1, logstr, 1 );
 		}
-		else {
-			switch(PN) {
+		else
+		{
+			switch(PN)
+			{
 			case PRM_CHANNELSCNT:
-				if(sscanf( ParamValue, "%d", &TotalChannels ) == 1) {
+				if(sscanf( ParamValue, "%d", &TotalChannels ) == 1)
+				{
 					sprintf( logstr, "Set TotalChannels = %d", TotalChannels );
 					Log( TRC_SETT, -1, logstr, 0 );
 				}
-				else {
+				else
+				{
 					TotalChannels = DEFAULT_TOTALCHANNELS;
 					sprintf( logstr, "Wrong parameter set: %s=%s", ParamName, ParamValue );
 					Log( TRC_SETT, -1, logstr, 2 );
 				}
 				break;
 			case PRM_TRACEMASK:
-				if(sscanf( ParamValue, "%d", &TraceMask ) == 1) {
+				if(sscanf( ParamValue, "%d", &TraceMask ) == 1)
+				{
 					sprintf( logstr, "Set TraceMask = %d", TraceMask );
 					Log( TRC_SETT, -1, logstr, 0 );
 				}
-				else {
+				else
+				{
 					TraceMask = DEFAULT_TRACEMASK;
 					sprintf( logstr, "Wrong parameter set: %s=%s", ParamName, ParamValue );
 					Log( TRC_SETT, -1, logstr, 2 );
 				}
 				break;
 			case PRM_SVRTFILTER:
-				if(sscanf( ParamValue, "%d", &SeverityFilter ) == 1) {
+				if(sscanf( ParamValue, "%d", &SeverityFilter ) == 1)
+				{
 					sprintf( logstr, "Set SeverityFilter = %d", SeverityFilter );
 					Log( TRC_SETT, -1, logstr, 0 );
 				}
-				else {
+				else
+				{
 					SeverityFilter = DEFAULT_SEVERITYFILTER;
 					sprintf( logstr, "Wrong parameter set: %s=%s", ParamName, ParamValue );
 					Log( TRC_SETT, -1, logstr, 2 );
 				}
 				break;
 			case PRM_SENDCALLACK:
-				if(sscanf( ParamValue, "%d", &SendCallAck ) == 1) {
+				if(sscanf( ParamValue, "%d", &SendCallAck ) == 1)
+				{
 					sprintf( logstr, "Set SendCallAck = %d", SendCallAck );
 					Log( TRC_SETT, -1, logstr, 0 );
 				}
-				else {
+				else
+				{
 					SendCallAck = DEFAULT_SENDCALLACK;
 					sprintf( logstr, "Wrong parameter set: %s=%s", ParamName, ParamValue );
 					Log( TRC_SETT, -1, logstr, 2 );
 				}
 				break;
 			case PRM_SENDACM:
-				if(sscanf( ParamValue, "%d", &SendACM ) == 1) {
+				if(sscanf( ParamValue, "%d", &SendACM ) == 1)
+				{
 					sprintf( logstr, "Set SendACM = %d", SendACM );
 					Log( TRC_SETT, -1, logstr, 0 );
 				}
-				else {
+				else
+				{
 					SendCallAck = DEFAULT_SENDACM;
 					sprintf( logstr, "Wrong parameter set: %s=%s", ParamName, ParamValue );
 					Log( TRC_SETT, -1, logstr, 2 );
 				}
 				break;
 			case PRM_LOCALIP:
-				if(sscanf( ParamValue, "%s", sParam ) == 1) {
+				if(sscanf( ParamValue, "%s", sParam ) == 1)
+				{
 					LocalIP = inet_addr( sParam );
-					if(LocalIP != -1) {
+					if(LocalIP != -1)
+					{
 						sprintf( logstr, "LocalIP = %s", sParam );
 						Log( TRC_SETT, -1, logstr, 0 );
 					}
-					else {
+					else
+					{
 						sprintf( logstr, "Wrong LocalIP settings : [%s]", sParam );
 						Log( TRC_SETT, -1, logstr, 0 );
 					}
 				}
-				else {
+				else
+				{
 					LocalIP = -1;
 					sprintf( logstr, "Wrong parameter set: %s=%s", ParamName, ParamValue );
 					Log( TRC_SETT, -1, logstr, 2 );
@@ -404,16 +448,19 @@ void LoadSettings() {
 	fclose( f );
 }
 //---------------------------------------------------------------------------
-void InitChannels() {
+void InitChannels()
+{
 	LogWrite( "Init Channels" );
 	int i, callndx;
 	int ret;
 	char str[LOGSTRSIZE];
 	char FullDevName[MAX_DEVNAME];
 
-	for(i = 0; i < TotalChannels; i++) {
+	for(i = 0; i < TotalChannels; i++)
+	{
 		ChannelInfo[i].blocked = 1;
-		for(callndx = 0; callndx < MAX_CALLS; callndx++) {
+		for(callndx = 0; callndx < MAX_CALLS; callndx++)
+		{
 			ChannelInfo[i].Calls[callndx].crn = 0;
 			ChannelInfo[i].Calls[callndx].SState = GCST_NULL;
 		}
@@ -423,7 +470,8 @@ void InitChannels() {
 		ret = gc_OpenEx( &(ChannelInfo[i].hdLine), FullDevName, EV_ASYNC, (void *)i );
 		sprintf( str, "gc_OpenEx(\"%s\") = %d", FullDevName, ret );
 		Log( TRC_CORE, i, str, 2 );
-		if(ret == GC_SUCCESS) {
+		if(ret == GC_SUCCESS)
+		{
 			ChannelInfo[i].iott.io_fhandle = -1;
 		}
 	}
@@ -454,19 +502,22 @@ void process_event( void )
 
 	long		state;
 
-	if(gc_GetMetaEvent( &metaevent ) != GC_SUCCESS) {
+	if(gc_GetMetaEvent( &metaevent ) != GC_SUCCESS)
+	{
 		// serious problem - should never fail
 		Log( TRC_CORE, -1, "gc_GetMetaEvent() failed", 3 );
 		return;
 	}
 
-	if((metaevent.flags & GCME_GC_EVENT) != 0) {
+	if((metaevent.flags & GCME_GC_EVENT) != 0)
+	{
 		// Global Call Event
 		index = (int)metaevent.usrattr;
 		evttype = metaevent.evttype;
 		TempCRN = metaevent.crn;
 		CallNdx = GetCallNdx( index, TempCRN );
-		switch(evttype) {
+		switch(evttype)
+		{
 		case GCEV_OPENEX:
 			LogGC( index, evttype, "Channel is opened", 0 );
 			ret = gc_GetResourceH( ChannelInfo[index].hdLine, &(ChannelInfo[index].hdVoice), GC_VOICEDEVICE );
@@ -500,7 +551,7 @@ void process_event( void )
 			std::string RdPN;
 			std::string reason;
 			int reasonCodeIP;
-			if (GetSIPRdPN( (GC_PARM_BLKP)metaevent.extevtdatap, RdPN, reason, &reasonCodeIP ))
+			if(GetSIPRdPN( (GC_PARM_BLKP)metaevent.extevtdatap, RdPN, reason, &reasonCodeIP ))
 			{
 				std::string fullRdPNInfo = RdPN + " (reason=" + reason + ")";
 				strncpy( ChannelInfo[index].RdPN, fullRdPNInfo.c_str(), MAX_NUMSIZE );
@@ -514,24 +565,30 @@ void process_event( void )
 
 			sprintf( str, "CgPN:[%s] CdPN:[%s] RdPN:[%s] (reason=%d)", ChannelInfo[index].CgPN, ChannelInfo[index].CdPN, ChannelInfo[index].RdPN, ChannelInfo[index].reasonCode );
 			LogGC( index, evttype, str, 0 );
-			if(SendCallAck > 0) {
+			if(SendCallAck > 0)
+			{
 				GC_CALLACK_BLK callack; /* type & number of digits to collect */
 				memset( &callack, 0, sizeof( callack ) );
-				if(gc_CallAck( TempCRN, &callack, EV_ASYNC ) != GC_SUCCESS) {
+				if(gc_CallAck( TempCRN, &callack, EV_ASYNC ) != GC_SUCCESS)
+				{
 					gc_ErrorInfo( &gc_error_info );
 					sprintf( str, "Error gc_CallAck() %s", gc_error_info.ccMsg );
 					Log( TRC_CORE, index, str, 2 );
 				}
-				else {
+				else
+				{
 					LogFunc( index, "gc_CallAck", 0 );
 				}
 			}
-			else {
-				if(SendACM > 0) {
+			else
+			{
+				if(SendACM > 0)
+				{
 					ret = gc_AcceptCall( TempCRN, 0, EV_ASYNC );
 					LogFunc( index, "gc_AcceptCall()", ret );
 				}
-				else {
+				else
+				{
 					ret = gc_AnswerCall( TempCRN, 0, EV_ASYNC );
 					LogFunc( index, "gc_AnswerCall()", ret );
 				}
@@ -540,11 +597,13 @@ void process_event( void )
 		}
 		case GCEV_CALLPROC:
 			LogGC( index, evttype, "", 0 );
-			if(SendACM > 0) {
+			if(SendACM > 0)
+			{
 				ret = gc_AcceptCall( TempCRN, 0, EV_ASYNC );
 				LogFunc( index, "gc_AcceptCall()", ret );
 			}
-			else {
+			else
+			{
 				ret = gc_AnswerCall( TempCRN, 0, EV_ASYNC );
 				LogFunc( index, "gc_AnswerCall()", ret );
 			}
@@ -596,25 +655,29 @@ void process_event( void )
 			*/
 			// WAV PLAY
 
-			if((ChannelInfo[index].iott.io_fhandle = open( "9999.wav", O_RDONLY )) != -1) {
+			if((ChannelInfo[index].iott.io_fhandle = open( "9999.wav", O_RDONLY )) != -1)
+			{
 				ChannelInfo[index].iott.io_type = IO_EOT | IO_DEV;
 				ChannelInfo[index].iott.io_offset = (unsigned long)0;
 				ChannelInfo[index].iott.io_length = -1;
 				ChannelInfo[index].xpb.wFileFormat = FILE_FORMAT_WAVE;
 				ret = dx_playiottdata( ChannelInfo[index].hdVoice, &ChannelInfo[index].iott, NULL, &ChannelInfo[index].xpb, EV_ASYNC );
 				LogFunc( index, "dx_playiottdata()", ret );
-				if(ret != GC_SUCCESS) {
+				if(ret != GC_SUCCESS)
+				{
 					close( ChannelInfo[index].iott.io_fhandle );
 					ChannelInfo[index].PState = PST_TERMINATION;
 					ret = gc_DropCall( TempCRN, GC_NORMAL_CLEARING, EV_ASYNC );
 					LogFunc( index, "gc_DropCall()", ret );
 				}
-				else {
+				else
+				{
 					ChannelInfo[index].PState = PST_PLAY;
 					ChannelInfo[index].VState = VST_PLAY;
 				}
 			}
-			else {
+			else
+			{
 				Log( TRC_DX, index, "Play Error: unable open file", 2 );
 				ChannelInfo[index].PState = PST_TERMINATION;
 				//ret = gc_DropCall(TempCRN,GC_NORMAL_CLEARING,EV_ASYNC);
@@ -642,13 +705,16 @@ void process_event( void )
 			break;
 		case GCEV_DISCONNECTED:
 			ChannelInfo[index].PState = PST_TERMINATION;
-			if(CallNdx == -1) {  // Should not be such case
+			if(CallNdx == -1)
+			{  // Should not be such case
 				LogGC( index, evttype, "CallIndex for CRN not found", 3 );
 				ret = gc_DropCall( TempCRN, GC_NORMAL_CLEARING, EV_ASYNC );
 				LogFunc( index, "gc_DropCall()", ret );
 			}
-			else {
-				switch(ChannelInfo[index].Calls[CallNdx].SState) {
+			else
+			{
+				switch(ChannelInfo[index].Calls[CallNdx].SState)
+				{
 				case GCST_CONNECTED: // Network Terminated
 					LogGC( index, evttype, "Network terminated", 0 );
 					ChannelInfo[index].Calls[CallNdx].SState = GCST_DISCONNECTED;
@@ -678,13 +744,16 @@ void process_event( void )
 		case GCEV_DROPCALL:
 			LogGC( index, evttype, "", 0 );
 			state = ATDX_STATE( ChannelInfo[index].hdVoice );
-			if((state == CS_PLAY) || (state == CS_RECD) || (state == CS_GTDIG)) {
+			if((state == CS_PLAY) || (state == CS_RECD) || (state == CS_GTDIG))
+			{
 				dx_stopch( ChannelInfo[index].hdVoice, EV_ASYNC );
 			}
-			if(CallNdx == -1) {
+			if(CallNdx == -1)
+			{
 				Log( TRC_GC, index, "CallIndex for CRN not found", 3 );
 			}
-			else {
+			else
+			{
 				ChannelInfo[index].Calls[CallNdx].SState = GCST_IDLE;
 			}
 			ret = gc_ReleaseCallEx( TempCRN, EV_ASYNC );
@@ -692,22 +761,27 @@ void process_event( void )
 			break;
 		case GCEV_RELEASECALL:
 			LogGC( index, evttype, "", 0 );
-			if(CallNdx == -1) {
+			if(CallNdx == -1)
+			{
 				Log( TRC_GC, index, "CallIndex for CRN not found", 3 );
 			}
-			else {
-				if(ChannelInfo[index].Calls[CallNdx].SState == GCST_IDLE) {
+			else
+			{
+				if(ChannelInfo[index].Calls[CallNdx].SState == GCST_IDLE)
+				{
 					ChannelInfo[index].Calls[CallNdx].SState = GCST_NULL;
 					ChannelInfo[index].Calls[CallNdx].crn = 0;
 				}
-				else {
+				else
+				{
 					Log( TRC_GC, index, "got event at unexpected SState", 3 );
 				}
 			}
 			break;
 		case GCEV_RESETLINEDEV:
 			LogGC( index, evttype, "", 0 );
-			for(i = 0; i < MAX_CALLS; i++) {
+			for(i = 0; i < MAX_CALLS; i++)
+			{
 				ChannelInfo[index].Calls[i].crn = 0;
 				ChannelInfo[index].Calls[i].SState = GCST_NULL;
 			}
@@ -724,25 +798,31 @@ void process_event( void )
 			LogGC( index, evttype, "Unsupported event", 2 );
 		}
 	}
-	else {
+	else
+	{
 		// Other Event
 		// Suppose that here will be dxxx event. But if later another event source be added 
 		//   need to clarify is it required to distinguish these sources (and process events in different ways)
 		hdDev = metaevent.evtdev;
 		evttype = metaevent.evttype;
 		index = GetIndexByVoice( hdDev );
-		switch(evttype) {
+		switch(evttype)
+		{
 		case TDX_PLAY:
 			LogDX( index, evttype, "", 0 );
-			if(index == -1) {
+			if(index == -1)
+			{
 				Log( TRC_CORE, -1, "Linedev not found", 3 );
 			}
-			else {
-				switch(ChannelInfo[index].PState) {
+			else
+			{
+				switch(ChannelInfo[index].PState)
+				{
 				case PST_PLAY:
 					ret = dx_play( ChannelInfo[index].hdVoice, &ChannelInfo[index].iott, NULL, RM_SR8 | EV_ASYNC );
 					LogFunc( index, "dx_play()", ret );
-					if(ret != GC_SUCCESS) {
+					if(ret != GC_SUCCESS)
+					{
 						close( ChannelInfo[index].iott.io_fhandle );
 						ret = gc_DropCall( ChannelInfo[index].Calls[0].crn, GC_NORMAL_CLEARING, EV_ASYNC );
 						LogFunc( index, "gc_DropCall()", ret );
@@ -761,10 +841,12 @@ void process_event( void )
 			break;
 		case TDX_GETDIG:
 			LogDX( index, evttype, "", 0 );
-			if(index == -1) {
+			if(index == -1)
+			{
 				Log( TRC_CORE, -1, "Linedev not found", 3 );
 			}
-			else {
+			else
+			{
 				sprintf( str, "GetDigit return [%c]", ChannelInfo[index].digbuf.dg_value[0] );
 				Log( TRC_DX, index, str, 0 );
 			}
@@ -772,7 +854,8 @@ void process_event( void )
 		case TDX_CST:
 			LogDX( index, evttype, "", 0 );
 			cstp = (DX_CST *)sr_getevtdatap();
-			switch(cstp->cst_event) {
+			switch(cstp->cst_event)
+			{
 			case DE_DIGITS:
 				sprintf( str, "Digit detected [%c]", (char)(cstp->cst_data) );
 				Log( TRC_DX, index, str, 0 );
@@ -813,7 +896,7 @@ int GetSIPRdPN( GC_PARM_BLK	*paramblkp, std::string & RdPN, std::string & reason
 			size_t endRdPN = diversionURI.find( rdpnEndTag, beginRdPN );
 			if((beginRdPN != std::string::npos) && (endRdPN != std::string::npos))
 			{
-				RdPN = diversionURI.substr(beginRdPN + rdpnStartTag.size(), endRdPN - beginRdPN - rdpnStartTag.size() );
+				RdPN = diversionURI.substr( beginRdPN + rdpnStartTag.size(), endRdPN - beginRdPN - rdpnStartTag.size() );
 				result = true;
 			}
 
@@ -843,10 +926,12 @@ int GetSIPRdPN( GC_PARM_BLK	*paramblkp, std::string & RdPN, std::string & reason
 	return result;
 }
 //---------------------------------------------------------------------------
-void RegNewCall( int LineNo, CRN crn, int State ) {
+void RegNewCall( int LineNo, CRN crn, int State )
+{
 	int i;
 	// Вытолкнуть имеющиеся вызовы на позицию вглубь
-	for(i = MAX_CALLS - 1; i > 0; i--) {
+	for(i = MAX_CALLS - 1; i > 0; i--)
+	{
 		ChannelInfo[LineNo].Calls[i].crn = ChannelInfo[LineNo].Calls[i - 1].crn;
 		ChannelInfo[LineNo].Calls[i].SState = ChannelInfo[LineNo].Calls[i - 1].SState;
 	}
@@ -855,14 +940,16 @@ void RegNewCall( int LineNo, CRN crn, int State ) {
 	ChannelInfo[LineNo].Calls[0].SState = State;
 }
 //---------------------------------------------------------------------------
-int GetCallNdx( int LineNo, CRN crn ) {
+int GetCallNdx( int LineNo, CRN crn )
+{
 	int i;
 	for(i = 0; i < MAX_CALLS; i++)
 		if(ChannelInfo[LineNo].Calls[i].crn == crn) return i;
 	return -1;
 }
 //---------------------------------------------------------------------------
-int GetIndexByVoice( int dev ) {
+int GetIndexByVoice( int dev )
+{
 	int i;
 	for(i = 0; i < TotalChannels; i++)
 		if(ChannelInfo[i].hdVoice == dev)

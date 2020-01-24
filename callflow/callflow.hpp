@@ -8,29 +8,25 @@
 #define YES					1
 #define NO					0
 //---------------------------------------------------------------------------
-#define STATINTERVAL	10
-#define MAXEXECUTORS	20
-//---------------------------------------------------------------------------
 #define TRC_CORE	1
 #define TRC_GC		2
 #define TRC_DX		4
 #define TRC_SETT	8
-#define TRC_DB		16
-#define TRC_DBTR	32
 //---------------------------------------------------------------------------
 #define LOGSTRSIZE	256
-#define DBERROR_FIELD_LEN 256
-#define DBSTR_PARAM_LEN   64
 #define MAX_DEVNAME	64		// Maximum length of device name											*/
 #define MAX_NUMSIZE	128
 //---------------------------------------------------------------------------
 #define VST_IDLE        0
 #define VST_PLAY        1
 //---------------------------------------------------------------------------
-#define PST_IDLE        0
-#define PST_DBREQ       1
-#define PST_PLAY	2
-#define PST_TERMINATION	3
+#define PST_NULL        0
+#define PST_IDLE        1 // ready for call
+#define PST_CALLING		2
+#define PST_PLAY		3
+#define PST_TERMINATION	4
+#define PST_INTERRUPTING 5
+#define PST_INTERRUPTED  6
 //---------------------------------------------------------------------------
 #define MAXCHANS	2000  // Potential maximum of configured channels
 #define MAX_CALLS       2
@@ -39,32 +35,27 @@
 #define MAXPARAMS	15
 
 #define PRM_CHANNELSCNT	0
-#define PRM_TRACEMASK	1
-#define PRM_SVRTFILTER	2
-#define PRM_SENDCALLACK 3
-#define PRM_SENDACM	4
-#define PRM_LOCALIP	5
-#define PRM_DBNAME	6
-#define PRM_DBUSER	7
-#define PRM_DBPASSWORD	8
-#define PRM_WAVPATH1	9
-#define PRM_WAVPATH2	10
-#define PRM_PLAYDEFAULT	11
-#define PRM_DEFAULTFRGM	12
-#define PRM_PRIORITY	13
-#define PRM_SERVICEKEY	14
-//---------------------------------------------------------------------------
-#define DBR_OK		0
-#define DBR_ERROR	-1
+#define PRM_FIRSTCHANNEL	1
+#define PRM_TRACEMASK	2
+#define PRM_SVRTFILTER	3
+#define PRM_SENDCALLACK 4
+#define PRM_SENDACM		5
+#define PRM_LOCALIP		6
+#define PRM_MSCIP		7
+#define PRM_CDPN		8
+#define PRM_CGPN		9
+#define PRM_FRAGMENT	10
+#define PRM_MINDUR		11
+#define PRM_ADDRANDDUR	12
 //---------------------------------------------------------------------------
 #define DEFAULT_TOTALCHANNELS	2
-#define DEFAULT_TRACEMASK	255
+#define DEFAULT_FIRSTCHANNEL	0
+#define DEFAULT_TRACEMASK		255
 #define DEFAULT_SEVERITYFILTER	0
-#define DEFAULT_SENDCALLACK	0
-#define DEFAULT_SENDACM		0
-#define DEFAULT_PRIORITY	0
-#define DEFAULT_SERVICEKEY	1024
-#define DEFAULT_PLAYDEFAULT	0
+#define DEFAULT_SENDCALLACK		0
+#define DEFAULT_SENDACM			0
+#define DEFAULT_MINDUR			5
+#define DEFAULT_ADDRANDDUR		10
 //---------------------------------------------------------------------------
 struct T_ParamDef {
 	int ID;
@@ -72,20 +63,18 @@ struct T_ParamDef {
 };
 const struct T_ParamDef Parameters[MAXPARAMS] = {
 		{PRM_CHANNELSCNT,"ChannelsCount"},
+		{PRM_FIRSTCHANNEL,"FirstChannel" },
 		{PRM_TRACEMASK,  "TraceMask"},
 		{PRM_SVRTFILTER, "SeverityFilter"},
 		{PRM_SENDCALLACK,"SendCallAck"},
 		{PRM_SENDACM,    "SendACM"},
 		{PRM_LOCALIP,    "LocalIP"},
-		{PRM_DBNAME,     "DBName"},
-		{PRM_DBUSER,     "DBUser"},
-		{PRM_DBPASSWORD, "DBPassword"},
-		{PRM_WAVPATH1,   "WAVPath1"},
-		{PRM_WAVPATH2,   "WAVPath2"},
-		{PRM_PLAYDEFAULT,   "PlayDefault"},
-		{PRM_DEFAULTFRGM,   "DefaultFragmentN"},
-		{PRM_PRIORITY,   "Priority"},
-		{PRM_SERVICEKEY,   "ServiceKey"}
+		{ PRM_MSCIP,      "MSCIP" },
+		{ PRM_CDPN,       "CdPN" },
+		{ PRM_CGPN,       "CgPN" },
+		{ PRM_FRAGMENT,   "Fragment" },
+		{ PRM_MINDUR,     "MinDuration" },
+		{ PRM_ADDRANDDUR, "AddRandDuration" }
 };
 //---------------------------------------------------------------------------
 #define MAXGCEVENT	0x100
@@ -139,25 +128,24 @@ typedef struct {   /////// Дескриптор ресурса
 	DX_XPB  xpb;
 	DV_DIGIT  digbuf;
 	DV_TPT tpt[3];
+	GC_MAKECALL_BLK makecallblk;
 } T_CHAN_INFO;
 
 
 int TraceMask;
 int SeverityFilter;
 int TotalChannels;  // Number of channels in program instance
+int FirstChannel;
 int SendCallAck;   // Send Ringing or no
 int SendACM;
 int LocalIP;
-char DBUser[MAXPARAMSIZE];
-char DBPassword[MAXPARAMSIZE];
-char DBName[MAXPARAMSIZE];
-char WAVPath1[128];
-char WAVPath2[128];
-int  ServiceKey;
-int  Priority;
-int  PlayDefault;
-//char DefaultFragment[64];
-int DefaultFragmentN;
+char sLocalIP[16];
+char MSCIP[16];
+char CdPN[32];
+char CgPN[32];
+char Fragment[64];
+int MinDuration;
+int AddRandDuration;
 
 
 // Statistics
@@ -180,7 +168,6 @@ void LogGC( int Channel, int event, const char *, int Svrt );
 void LogDX( int Channel, int event, const char *, int Svrt );
 void LogFunc( int Channel, const char *FuncName, int ret );
 void init_srl_mode();
-static void intr_hdlr( void );
 void LoadSettings();
 void InitLogFile();
 void InitDialogicLibs();
@@ -188,7 +175,7 @@ void Deinit();
 void process_event( void );
 void InitChannels();
 void RegNewCall( int LineNo, CRN crn, int State );
-int GetSIPRdPN( GC_PARM_BLK	*paramblkp, std::string & RdPN, std::string & reason, int * reasonCode );
+int  GetSIPRdPN( GC_PARM_BLK	*paramblkp, std::string & RdPN, std::string & reason, int * reasonCode );
 int  GetCallNdx( int LineNo, CRN crn );
 int  GetIndexByVoice( int );
 int  FindParam( char *ParamName );

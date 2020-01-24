@@ -25,28 +25,20 @@
 
 static int		interrupted = NO;	/* Flag for user interrupted signals		 */
 time_t			start_time;		// To note down the start time
+FILE *fLog;
 
 int main( void )
 {
 	int ret;
+	int i;
+	int fCanClose = 0;
+	char str[LOGSTRSIZE];
 
-	/* Note down the start time for the test */
 	time( &start_time );
-	Log( TRC_CORE, -1, "********** CRBT service started ***********", 0 );
+	InitLogFile();
+	Log( TRC_CORE, -1, "********** IVR server started ***********", 0 );
 
-	// Give control to Event Handler
-/*
-#ifdef _WIN32
-	signal(SIGINT, (void (__cdecl*)(int)) intr_hdlr);
-	signal(SIGTERM, (void (__cdecl*)(int)) intr_hdlr);
-#else
-	signal(SIGHUP, (void (*)()) intr_hdlr);
-	signal(SIGQUIT, (void (*)()) intr_hdlr);
-	signal(SIGINT, (void (*)()) intr_hdlr);
-	signal(SIGTERM, (void (*)()) intr_hdlr);
-#endif
-*/
-	init_srl_mode();									/* set SRL mode to ASYNC, polled */
+	init_srl_mode();									// set SRL mode to ASYNC, polled
 	LoadSettings();
 	InitDialogicLibs();
 	InitChannels();
@@ -57,18 +49,29 @@ int main( void )
 	{
 		ret = sr_waitevt( 500 );					// 1/2 second
 		if(ret != -1)
-		{					// i.e. not timeout
+		{
 			process_event();
 		}
-		if(interrupted == YES)
-		{				// flag set in intr_hdlr() 
-//
-// Check here if all channels already cleared and closed
-// And if so - can exit
-//
-			return 0;
+		if(interrupted == YES)	// flag set in intr_hdlr() 
+		{
+			fCanClose = 1;
+			for(i = 0; i < TotalChannels; i++)
+			{
+				if(ChannelInfo[i].PState != PST_INTERRUPTED)
+				{
+					sprintf( str, "Waiting for channel [%d], state %d", i, ChannelInfo[i].PState );
+					Log( TRC_CORE, -1, str, 0 );
+					fCanClose = 0;
+					break;
+				}
+			}
+			if(fCanClose)
+			{
+				Log( TRC_CORE, -1, "Application Stopped", 2 );
+				fclose( fLog );
+				return 0;
+			}
 		}
-
 	}
 }
 
@@ -121,6 +124,19 @@ static void intr_hdlr( void )
 	Log( TRC_CORE, -1, " *******Received User Interrupted Signal *******", 2 );
 	Deinit();
 	interrupted = YES;
+}
+//---------------------------------------------------------------------------
+void InitLogFile()
+{
+	char sFN[64];
+	struct tm *tblock;
+	tblock = localtime( &start_time );
+	sprintf( sFN, "./Logs/ivrserv_%04d%02d%02d_%02d%02d%02d.txt", tblock->tm_year + 1900, tblock->tm_mon, tblock->tm_mday, tblock->tm_hour, tblock->tm_min, tblock->tm_sec );
+	if((fLog = fopen( sFN, "w" )) == NULL)
+	{
+		printf( "Cannot create log file. Termination.\n" );
+		exit( 1 );
+	}
 }
 //---------------------------------------------------------------------------
 void InitDialogicLibs()
@@ -216,10 +232,31 @@ void Deinit()
 {
 	Log( TRC_CORE, -1, "Deinitialization", 0 );
 	int i;
-	for(i = 0; i < TotalChannels; i++)
+	int ret;
+	for(i = 0; i<TotalChannels; i++)
 	{
-		if(gc_Close( ChannelInfo[i].hdLine ) != GC_SUCCESS)
-			Log( TRC_CORE, i, "gc_Close() error", 2 );
+		switch(ChannelInfo[i].PState)
+		{
+		case PST_CALLING:
+			ChannelInfo[i].PState = PST_INTERRUPTING;
+			ret = gc_DropCall( ChannelInfo[i].Calls[0].crn, GC_NORMAL_CLEARING, EV_ASYNC );
+			LogFunc( i, "gc_DropCall()", ret );
+			break;
+		case PST_PLAY:
+			ret = dx_stopch( ChannelInfo[i].hdVoice, EV_ASYNC );
+			LogFunc( i, "dx_stopch()", ret );
+			ChannelInfo[i].PState = PST_INTERRUPTING;
+			ret = gc_DropCall( ChannelInfo[i].Calls[0].crn, GC_NORMAL_CLEARING, EV_ASYNC );
+			LogFunc( i, "gc_DropCall()", ret );
+			break;
+		case PST_TERMINATION:
+			ChannelInfo[i].PState = PST_INTERRUPTING;
+			break;
+		default:   // NULL, IDLE
+			ChannelInfo[i].PState = PST_INTERRUPTED;
+			ret = gc_Close( ChannelInfo[i].hdLine );
+			LogFunc( i, "gc_Close()", ret );
+		}
 	}
 }
 //---------------------------------------------------------------------------
@@ -288,7 +325,8 @@ void LogWrite( const char *msg )
 	struct tm *tblock;
 	tblock = localtime( &timer );
 	printf( "%04d/%02d/%02d %02d:%02d:%02d %s\n", tblock->tm_year + 1900, tblock->tm_mon, tblock->tm_mday, tblock->tm_hour, tblock->tm_min, tblock->tm_sec, msg );
-	//  printf("%s\n",msg);
+	fprintf( fLog, "%04d/%02d/%02d %02d:%02d:%02d %s\n", tblock->tm_year + 1900, tblock->tm_mon, tblock->tm_mday, tblock->tm_hour, tblock->tm_min, tblock->tm_sec, msg );
+	fflush( fLog );
 }
 //---------------------------------------------------------------------------
 int FindParam( char *ParamName )
@@ -306,6 +344,8 @@ void LoadSettings()
 	TotalChannels = DEFAULT_TOTALCHANNELS;
 	TraceMask = DEFAULT_TRACEMASK;
 	SeverityFilter = DEFAULT_SEVERITYFILTER;
+	MinDuration = DEFAULT_MINDUR;
+	AddRandDuration = DEFAULT_ADDRANDDUR;
 
 	char logstr[LOGSTRSIZE];
 	char str[MAXPARAMSIZE];
@@ -365,6 +405,19 @@ void LoadSettings()
 					Log( TRC_SETT, -1, logstr, 2 );
 				}
 				break;
+			case PRM_FIRSTCHANNEL:
+				if(sscanf( ParamValue, "%d", &FirstChannel ) == 1)
+				{
+					sprintf( logstr, "Set FirstChannel = %d", FirstChannel );
+					Log( TRC_SETT, -1, logstr, 0 );
+				}
+				else
+				{
+					FirstChannel = DEFAULT_FIRSTCHANNEL;
+					sprintf( logstr, "Wrong parameter set: %s=%s", ParamName, ParamValue );
+					Log( TRC_SETT, -1, logstr, 2 );
+				}
+				break;
 			case PRM_TRACEMASK:
 				if(sscanf( ParamValue, "%d", &TraceMask ) == 1)
 				{
@@ -418,23 +471,97 @@ void LoadSettings()
 				}
 				break;
 			case PRM_LOCALIP:
-				if(sscanf( ParamValue, "%s", sParam ) == 1)
+				if(sscanf( ParamValue, "%s", sLocalIP ) == 1)
 				{
-					LocalIP = inet_addr( sParam );
+					LocalIP = inet_addr( sLocalIP );
 					if(LocalIP != -1)
 					{
-						sprintf( logstr, "LocalIP = %s", sParam );
+						sprintf( logstr, "LocalIP = %s", sLocalIP );
 						Log( TRC_SETT, -1, logstr, 0 );
 					}
 					else
 					{
-						sprintf( logstr, "Wrong LocalIP settings : [%s]", sParam );
-						Log( TRC_SETT, -1, logstr, 0 );
+						sprintf( logstr, "Wrong LocalIP settings : [%s]", sLocalIP );
+						Log( TRC_SETT, -1, logstr, 2 );
 					}
 				}
 				else
 				{
 					LocalIP = -1;
+					sprintf( logstr, "Wrong parameter set: %s=%s", ParamName, ParamValue );
+					Log( TRC_SETT, -1, logstr, 2 );
+				}
+				break;
+			case PRM_MSCIP:
+				if(sscanf( ParamValue, "%s", MSCIP ) == 1)
+				{
+					sprintf( logstr, "Set MSCIP = '%s'", MSCIP );
+					Log( TRC_SETT, -1, logstr, 0 );
+				}
+				else
+				{
+					sprintf( logstr, "Wrong parameter set: %s=%s", ParamName, ParamValue );
+					Log( TRC_SETT, -1, logstr, 2 );
+				}
+				break;
+			case PRM_CDPN:
+				if(sscanf( ParamValue, "%s", CdPN ) == 1)
+				{
+					sprintf( logstr, "Set CdPN = '%s'", CdPN );
+					Log( TRC_SETT, -1, logstr, 0 );
+				}
+				else
+				{
+					sprintf( logstr, "Wrong parameter set: %s=%s", ParamName, ParamValue );
+					Log( TRC_SETT, -1, logstr, 2 );
+				}
+				break;
+			case PRM_CGPN:
+				if(sscanf( ParamValue, "%s", CgPN ) == 1)
+				{
+					sprintf( logstr, "Set CgPN = '%s'", CgPN );
+					Log( TRC_SETT, -1, logstr, 0 );
+				}
+				else
+				{
+					sprintf( logstr, "Wrong parameter set: %s=%s", ParamName, ParamValue );
+					Log( TRC_SETT, -1, logstr, 2 );
+				}
+				break;
+			case PRM_FRAGMENT:
+				if(sscanf( ParamValue, "%s", Fragment ) == 1)
+				{
+					sprintf( logstr, "Set Fragment = '%s'", Fragment );
+					Log( TRC_SETT, -1, logstr, 0 );
+				}
+				else
+				{
+					sprintf( logstr, "Wrong parameter set: %s=%s", ParamName, ParamValue );
+					Log( TRC_SETT, -1, logstr, 2 );
+				}
+				break;
+			case PRM_MINDUR:
+				if(sscanf( ParamValue, "%d", &MinDuration ) == 1)
+				{
+					sprintf( logstr, "Set MinDuration = %d", MinDuration );
+					Log( TRC_SETT, -1, logstr, 0 );
+				}
+				else
+				{
+					MinDuration = DEFAULT_MINDUR;
+					sprintf( logstr, "Wrong parameter set: %s=%s", ParamName, ParamValue );
+					Log( TRC_SETT, -1, logstr, 2 );
+				}
+				break;
+			case PRM_ADDRANDDUR:
+				if(sscanf( ParamValue, "%d", &AddRandDuration ) == 1)
+				{
+					sprintf( logstr, "Set AddRandDuration = %d", AddRandDuration );
+					Log( TRC_SETT, -1, logstr, 0 );
+				}
+				else
+				{
+					AddRandDuration = DEFAULT_ADDRANDDUR;
 					sprintf( logstr, "Wrong parameter set: %s=%s", ParamName, ParamValue );
 					Log( TRC_SETT, -1, logstr, 2 );
 				}
@@ -455,21 +582,45 @@ void InitChannels()
 	int ret;
 	char str[LOGSTRSIZE];
 	char FullDevName[MAX_DEVNAME];
+	/*
+	char sDst[MAX_NUMSIZE];
+	char sSrc[MAX_NUMSIZE];
+	GCLIB_MAKECALL_BLK	*gclib_makecallp;
 
-	for(i = 0; i < TotalChannels; i++)
+	sprintf( sDst, "%s@%s", CdPN, MSCIP );
+	sprintf( sSrc, "%s@%s", CgPN, sLocalIP );
+	*/
+	int absoluteChannelIndex;
+
+	for(i = 0; i<TotalChannels; i++)
 	{
+		/*
+		gclib_makecallp = (GCLIB_MAKECALL_BLKP)malloc( sizeof( GCLIB_MAKECALL_BLK ) );
+		ChannelInfo[i].makecallblk.cclib = NULL;
+		ChannelInfo[i].makecallblk.gclib = gclib_makecallp;
+		gclib_makecallp->ext_datap = NULL;
+
+		strcpy( gclib_makecallp->destination.address, sDst );
+		gclib_makecallp->destination.address_type = GCADDRTYPE_TRANSPARENT;
+		strcpy( gclib_makecallp->origination.address, sSrc );
+		gclib_makecallp->origination.address_type = GCADDRTYPE_TRANSPARENT;
+		*/
 		ChannelInfo[i].blocked = 1;
+		ChannelInfo[i].PState = PST_NULL;
 		for(callndx = 0; callndx < MAX_CALLS; callndx++)
 		{
 			ChannelInfo[i].Calls[callndx].crn = 0;
 			ChannelInfo[i].Calls[callndx].SState = GCST_NULL;
 		}
-		sprintf( FullDevName, ":P_SIP:N_iptB1T%d:M_ipmB1C%d:V_dxxxB%dC%d", i + 1, i + 1, (i / 4) + 1, (i % 4) + 1 );
-		//sprintf(str, "[%s] is about to open", FullDevName);
-		//Log(str);
+		absoluteChannelIndex = FirstChannel + i;
+		sprintf( FullDevName, ":P_SIP:N_iptB1T%d:M_ipmB1C%d:V_dxxxB%dC%d",
+			absoluteChannelIndex + 1,
+			absoluteChannelIndex + 1,
+			(absoluteChannelIndex / 4) + 1,
+			(absoluteChannelIndex % 4) + 1 );
 		ret = gc_OpenEx( &(ChannelInfo[i].hdLine), FullDevName, EV_ASYNC, (void *)i );
 		sprintf( str, "gc_OpenEx(\"%s\") = %d", FullDevName, ret );
-		Log( TRC_CORE, i, str, 2 );
+		LogFunc( i, str, ret );
 		if(ret == GC_SUCCESS)
 		{
 			ChannelInfo[i].iott.io_fhandle = -1;

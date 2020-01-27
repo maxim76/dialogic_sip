@@ -176,22 +176,13 @@ void InitDialogicLibs()
 	gcLibStart.cclib_list = ccLibStart;
 	gcLibStart.num_cclibs = 4;
 
-	/* Start GlobalCall */
 	if(gc_Start( &gcLibStart ) != GC_SUCCESS)
 	{
-		sprintf( str, "gc_Start(startp = NULL) Failed" );
+		sprintf( str, "gc_Start() Failed" );
 		Log( TRC_CORE, -1, str, 4 );
 		exit( 1 );
 	}
 
-	// Default style of gc_Start
-	/*
-	if (gc_Start(NULL) != GC_SUCCESS) {
-		sprintf(str, "gc_Start(startp = NULL) Failed");
-		Log(TRC_CORE, -1, str, 4);
-		exit(1);
-	}
-	*/
 	if(gc_CCLibStatusEx( (char *)"GC_ALL_LIB", &cclib_status_all ) != GC_SUCCESS)
 	{
 		sprintf( str, "gc_CCLibStatusEx(GC_ALL_LIB, &cclib_status_all) Failed" );
@@ -854,6 +845,17 @@ void process_event( void )
 			*/
 			// End Get Digit
 			break;
+
+		case GCEV_CONNECTED:
+			LogGC( index, evttype, "", 0 );
+			if(CallNdx != -1)
+				ChannelInfo[index].Calls[CallNdx].SState = GCST_CONNECTED;
+			else
+				Log( TRC_GC, index, "CallIndex for CRN not found", 3 );
+			// TODO: Init play file, or do other task
+			ret = gc_DropCall( TempCRN, GC_NORMAL_CLEARING, EV_ASYNC );
+			break;
+
 		case GCEV_DISCONNECTED:
 			ChannelInfo[index].PState = PST_TERMINATION;
 			if(CallNdx == -1)
@@ -885,7 +887,8 @@ void process_event( void )
 					LogGC( index, evttype, "Simultaneous disconnect", 0 );
 					break;
 				default:
-					LogGC( index, evttype, "Disconnect at unexpected SState", 1 );
+					sprintf( str, "Disconnect at unexpected SState %d", ChannelInfo[index].Calls[CallNdx].SState );
+					LogGC( index, evttype, str, 1 );
 					ChannelInfo[index].Calls[CallNdx].SState = GCST_DISCONNECTED;
 					ret = gc_DropCall( TempCRN, GC_NORMAL_CLEARING, EV_ASYNC );
 					LogFunc( index, "gc_DropCall()", ret );
@@ -912,20 +915,27 @@ void process_event( void )
 			break;
 		case GCEV_RELEASECALL:
 			LogGC( index, evttype, "", 0 );
-			if(CallNdx == -1)
+			if(ChannelInfo[index].PState == PST_INTERRUPTING)
 			{
-				Log( TRC_GC, index, "CallIndex for CRN not found", 3 );
+				ChannelInfo[index].PState = PST_INTERRUPTED;
 			}
 			else
 			{
-				if(ChannelInfo[index].Calls[CallNdx].SState == GCST_IDLE)
+				if(CallNdx == -1)
 				{
-					ChannelInfo[index].Calls[CallNdx].SState = GCST_NULL;
-					ChannelInfo[index].Calls[CallNdx].crn = 0;
+					Log( TRC_GC, index, "CallIndex for CRN not found", 3 );
 				}
 				else
 				{
-					Log( TRC_GC, index, "got event at unexpected SState", 3 );
+					if(ChannelInfo[index].Calls[CallNdx].SState == GCST_IDLE)
+					{
+						ChannelInfo[index].Calls[CallNdx].SState = GCST_NULL;
+						ChannelInfo[index].Calls[CallNdx].crn = 0;
+					}
+					else
+					{
+						Log( TRC_GC, index, "got event at unexpected SState", 3 );
+					}
 				}
 			}
 			break;
@@ -944,6 +954,12 @@ void process_event( void )
 			ChannelInfo[index].blocked = 0;
 			ret = gc_ResetLineDev( ChannelInfo[index].hdLine, EV_ASYNC );
 			LogFunc( index, "gc_ResetLineDev()", ret );
+			break;
+		case GCEV_PROCEEDING:
+			LogGC( index, evttype, "", 0 );
+			break;
+		case GCEV_ALERTING:
+			LogGC( index, evttype, "", 0 );
 			break;
 		default:
 			LogGC( index, evttype, "Unsupported event", 2 );
@@ -970,6 +986,7 @@ void process_event( void )
 				switch(ChannelInfo[index].PState)
 				{
 				case PST_PLAY:
+					/*
 					ret = dx_play( ChannelInfo[index].hdVoice, &ChannelInfo[index].iott, NULL, RM_SR8 | EV_ASYNC );
 					LogFunc( index, "dx_play()", ret );
 					if(ret != GC_SUCCESS)
@@ -978,6 +995,8 @@ void process_event( void )
 						ret = gc_DropCall( ChannelInfo[index].Calls[0].crn, GC_NORMAL_CLEARING, EV_ASYNC );
 						LogFunc( index, "gc_DropCall()", ret );
 					}
+					*/
+					InitDisconnect( index );
 					break;
 				default:
 					ret = close( ChannelInfo[index].iott.io_fhandle );
@@ -1108,3 +1127,28 @@ int GetIndexByVoice( int dev )
 	return -1;
 }
 //---------------------------------------------------------------------------
+void InitDisconnect( int N )
+{
+	int ret;
+	ChannelInfo[N].PState = PST_TERMINATION;
+	ret = gc_DropCall( ChannelInfo[N].Calls[0].crn, GC_NORMAL_CLEARING, EV_ASYNC );
+	LogFunc( N, "gc_DropCall()", ret );
+}
+//---------------------------------------------------------------------------------
+void InitNewCall( int N )
+{
+	int ret;
+	ret = gc_MakeCall( ChannelInfo[N].hdLine, &(ChannelInfo[N].Calls[0].crn), NULL, &(ChannelInfo[N].makecallblk), 15, EV_ASYNC );
+	LogFunc( N, "gc_MakeCall()", ret );
+	if(ret == GC_SUCCESS)
+	{
+		ChannelInfo[N].Calls[0].SState = GCST_DIALING;
+		ChannelInfo[N].PState = PST_CALLING;
+	}
+	else
+	{
+		ChannelInfo[N].Calls[0].SState = GCST_NULL;
+		ChannelInfo[N].PState = PST_IDLE;
+	}
+}
+//---------------------------------------------------------------------------------

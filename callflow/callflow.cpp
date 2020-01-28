@@ -38,6 +38,18 @@ int main( void )
 	InitLogFile();
 	Log( TRC_CORE, -1, "********** IVR server started ***********", 0 );
 
+	// Give control to Event Handler
+
+#ifdef _WIN32
+	signal( SIGINT, (void( __cdecl* )(int)) intr_hdlr );
+	signal( SIGTERM, (void( __cdecl* )(int)) intr_hdlr );
+#else
+	signal( SIGHUP,	 intr_hdlr );
+	signal( SIGQUIT, intr_hdlr );
+	signal( SIGINT,  intr_hdlr );
+	signal( SIGTERM, intr_hdlr );
+#endif
+
 	init_srl_mode();									// set SRL mode to ASYNC, polled
 	LoadSettings();
 	InitDialogicLibs();
@@ -119,7 +131,7 @@ void init_srl_mode()
  *		  INPUT: None
  *		RETURNS: None.
   ***************************************************************************/
-static void intr_hdlr( void )
+static void intr_hdlr( int receivedSignal )
 {
 	Log( TRC_CORE, -1, " *******Received User Interrupted Signal *******", 2 );
 	Deinit();
@@ -342,7 +354,6 @@ void LoadSettings()
 	char str[MAXPARAMSIZE];
 	char ParamName[MAXPARAMSIZE];
 	char ParamValue[MAXPARAMSIZE];
-	char sParam[MAXPARAMSIZE];
 	int sl;
 	int n, np, nv;
 	FILE *f = fopen( "params.ini", "r" );

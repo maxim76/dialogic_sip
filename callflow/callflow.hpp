@@ -20,48 +20,46 @@
 #define VST_IDLE        0
 #define VST_PLAY        1
 //---------------------------------------------------------------------------
-#define PST_NULL        0
-#define PST_IDLE        1 // ready for call
-#define PST_CALLING		2
-#define PST_PLAY		3
-#define PST_TERMINATION	4
-#define PST_INTERRUPTING 5
-#define PST_INTERRUPTED  6
+#define PST_NULL		0	// Immediately after channel is opened
+#define PST_IDLE		1	// ready for call (waitcall is done)
+#define PST_CALLING		2	// makecall is in progress
+#define PST_PLAY		3	// dx_play is in progress
+#define PST_RELEASING	4	// DropCall is in progress
+#define PST_SHUTDOWN	5	// gc_Close() is done
 //---------------------------------------------------------------------------
 #define MAXCHANS	2000  // Potential maximum of configured channels
 #define MAX_CALLS       2
 //---------------------------------------------------------------------------
-#define MAXPARAMSIZE    64
-#define MAXPARAMS	15
+#define MAXPARAMSIZE    128
 
-#define PRM_CHANNELSCNT	0
+#define PRM_CHANNELSCNT		0
 #define PRM_FIRSTCHANNEL	1
-#define PRM_TRACEMASK	2
-#define PRM_SVRTFILTER	3
-#define PRM_SENDCALLACK 4
-#define PRM_SENDACM		5
-#define PRM_LOCALIP		6
-#define PRM_MSCIP		7
-#define PRM_CDPN		8
-#define PRM_CGPN		9
-#define PRM_FRAGMENT	10
-#define PRM_MINDUR		11
-#define PRM_ADDRANDDUR	12
+#define PRM_TRACEMASK		2
+#define PRM_SVRTFILTER		3
+#define PRM_SENDCALLACK		4
+#define PRM_SENDACM			5
+#define PRM_LOCALIP			6
+#define PRM_MSCIP			7
+#define PRM_CDPN			8
+#define PRM_CGPN			9
+#define PRM_MODE			10
+#define PRM_FRAGMENT		11
 //---------------------------------------------------------------------------
-#define DEFAULT_TOTALCHANNELS	2
+#define DEFAULT_ERRLOG_FILTER	1
+#define DEFAULT_CHANNELSCNT		2
 #define DEFAULT_FIRSTCHANNEL	0
 #define DEFAULT_TRACEMASK		255
 #define DEFAULT_SEVERITYFILTER	0
 #define DEFAULT_SENDCALLACK		0
 #define DEFAULT_SENDACM			0
-#define DEFAULT_MINDUR			5
-#define DEFAULT_ADDRANDDUR		10
+#define DEFAULT_MODE			0
+#define DEFAULT_FRAGMENT		"hello.wav"
 //---------------------------------------------------------------------------
 struct T_ParamDef {
 	int ID;
 	char Name[MAXPARAMSIZE];
 };
-const struct T_ParamDef Parameters[MAXPARAMS] = {
+const struct T_ParamDef Parameters[] = {
 		{PRM_CHANNELSCNT,"ChannelsCount"},
 		{PRM_FIRSTCHANNEL,"FirstChannel" },
 		{PRM_TRACEMASK,  "TraceMask"},
@@ -69,12 +67,11 @@ const struct T_ParamDef Parameters[MAXPARAMS] = {
 		{PRM_SENDCALLACK,"SendCallAck"},
 		{PRM_SENDACM,    "SendACM"},
 		{PRM_LOCALIP,    "LocalIP"},
-		{ PRM_MSCIP,      "MSCIP" },
-		{ PRM_CDPN,       "CdPN" },
-		{ PRM_CGPN,       "CgPN" },
+		{PRM_MSCIP,      "MSCIP" },
+		{PRM_CDPN,       "CdPN" },
+		{PRM_CGPN,       "CgPN" },
+		{PRM_MODE,			"Mode"},
 		{ PRM_FRAGMENT,   "Fragment" },
-		{ PRM_MINDUR,     "MinDuration" },
-		{ PRM_ADDRANDDUR, "AddRandDuration" }
 };
 //---------------------------------------------------------------------------
 #define MAXGCEVENT	0x100
@@ -139,30 +136,24 @@ int FirstChannel;
 int SendCallAck;   // Send Ringing or no
 int SendACM;
 int LocalIP;
-char sLocalIP[16];
-char MSCIP[16];
-char CdPN[32];
-char CgPN[32];
-char Fragment[64];
-int MinDuration;
-int AddRandDuration;
+char sLocalIP[MAXPARAMSIZE];
+char MSCIP[MAXPARAMSIZE];
+char CdPN[MAXPARAMSIZE];
+char CgPN[MAXPARAMSIZE];
+char defaultFragment[MAXPARAMSIZE];
+int Mode;
 
 
 // Statistics
 // TotalChannels take from global totalChannels variable
-int stUnblocked;
-int stUsed;
-double stCallsPerSec;
-int CurrentDBOpCnt;
-int stAvgDBOpDur;
-// auxilary statistics
-int stCallCntPerInterval;
-int stTotalDBTimePerInterval;
-int stDBReqPerInterval;
+int stUnblocked = 0;
+int stUsed = 0;
+int stCallCntPerInterval = 0;
 
 T_CHAN_INFO ChannelInfo[MAXCHANS + 1];
 
 void LogWrite( const char * );
+void ErrorLogWrite( char * );
 void Log( int Src, int Channel, const char *msg, int Svrt );
 void LogGC( int Channel, int event, const char *, int Svrt );
 void LogDX( int Channel, int event, const char *, int Svrt );
@@ -180,6 +171,7 @@ int  GetSIPRdPN( GC_PARM_BLK	*paramblkp, std::string & RdPN, std::string & reaso
 int  GetCallNdx( int LineNo, CRN crn );
 int  GetIndexByVoice( int );
 int  FindParam( char *ParamName );
-void InitPlayFragment( int index );
+bool InitPlayFragment( int index, const char *filename );
 void InitDisconnect( int index );
 void InitNewCall( int index );
+void writeStatistics();

@@ -26,6 +26,8 @@
 static int		interrupted = NO;	/* Flag for user interrupted signals		 */
 time_t			start_time;		// To note down the start time
 FILE *fLog;
+FILE *fErrorLog;
+FILE *fStat;
 
 int main( void )
 {
@@ -52,6 +54,7 @@ int main( void )
 
 	init_srl_mode();									// set SRL mode to ASYNC, polled
 	LoadSettings();
+
 	InitDialogicLibs();
 	InitChannels();
 
@@ -69,18 +72,28 @@ int main( void )
 			fCanClose = 1;
 			for(i = 0; i < TotalChannels; i++)
 			{
-				if(ChannelInfo[i].PState != PST_INTERRUPTED)
+				switch(ChannelInfo[i].PState)
+				{
+				case PST_NULL:
+				case PST_IDLE:
+					ret = gc_Close( ChannelInfo[i].hdLine );
+					LogFunc( i, "gc_Close()", ret );
+					ChannelInfo[i].PState = PST_SHUTDOWN;
+				}
+
+				if(ChannelInfo[i].PState != PST_SHUTDOWN)
 				{
 					sprintf( str, "Waiting for channel [%d], state %d", i, ChannelInfo[i].PState );
 					Log( TRC_CORE, -1, str, 0 );
 					fCanClose = 0;
-					break;
 				}
 			}
 			if(fCanClose)
 			{
 				Log( TRC_CORE, -1, "Application Stopped", 2 );
 				fclose( fLog );
+				fclose( fErrorLog );
+				fclose( fStat );
 				return 0;
 			}
 		}
@@ -143,12 +156,31 @@ void InitLogFile()
 	char sFN[64];
 	struct tm *tblock;
 	tblock = localtime( &start_time );
+
+	// Full log file
 	sprintf( sFN, "./Logs/ivrserv_%04d%02d%02d_%02d%02d%02d.txt", tblock->tm_year + 1900, tblock->tm_mon, tblock->tm_mday, tblock->tm_hour, tblock->tm_min, tblock->tm_sec );
 	if((fLog = fopen( sFN, "w" )) == NULL)
 	{
 		printf( "Cannot create log file. Termination.\n" );
 		exit( 1 );
 	}
+
+	// Errors only
+	sprintf( sFN, "./Logs/errors_%04d%02d%02d_%02d%02d%02d.txt", tblock->tm_year + 1900, tblock->tm_mon, tblock->tm_mday, tblock->tm_hour, tblock->tm_min, tblock->tm_sec );
+	if((fErrorLog = fopen( sFN, "w" )) == NULL)
+	{
+		printf( "Cannot create error log file. Termination.\n" );
+		exit( 1 );
+	}
+
+	// Statistics
+	sprintf( sFN, "./Logs/stat_%04d%02d%02d_%02d%02d%02d.txt", tblock->tm_year + 1900, tblock->tm_mon, tblock->tm_mday, tblock->tm_hour, tblock->tm_min, tblock->tm_sec );
+	if((fStat = fopen( sFN, "w" )) == NULL)
+	{
+		printf( "Cannot create statistics file. Termination.\n" );
+		exit( 1 );
+	}
+
 }
 //---------------------------------------------------------------------------
 void InitDialogicLibs()
@@ -241,17 +273,18 @@ void Deinit()
 		switch(ChannelInfo[i].PState)
 		{
 		case PST_CALLING:
-			ChannelInfo[i].PState = PST_INTERRUPTING;
+			ChannelInfo[i].PState = PST_RELEASING;
 			ret = gc_DropCall( ChannelInfo[i].Calls[0].crn, GC_NORMAL_CLEARING, EV_ASYNC );
 			LogFunc( i, "gc_DropCall()", ret );
 			break;
 		case PST_PLAY:
 			ret = dx_stopch( ChannelInfo[i].hdVoice, EV_ASYNC );
 			LogFunc( i, "dx_stopch()", ret );
-			ChannelInfo[i].PState = PST_INTERRUPTING;
+			ChannelInfo[i].PState = PST_RELEASING;
 			ret = gc_DropCall( ChannelInfo[i].Calls[0].crn, GC_NORMAL_CLEARING, EV_ASYNC );
 			LogFunc( i, "gc_DropCall()", ret );
 			break;
+			/*
 		case PST_TERMINATION:
 			ChannelInfo[i].PState = PST_INTERRUPTING;
 			break;
@@ -259,6 +292,7 @@ void Deinit()
 			ChannelInfo[i].PState = PST_INTERRUPTED;
 			ret = gc_Close( ChannelInfo[i].hdLine );
 			LogFunc( i, "gc_Close()", ret );
+			*/
 		}
 	}
 }
@@ -283,6 +317,7 @@ void Log( int Src, int Line, const char *msg, int Svrt )
 	else
 		sprintf( str, "[%s] [    ] [%d] %s", sSrc, Svrt, msg );
 	LogWrite( str );
+	if(Svrt >= DEFAULT_ERRLOG_FILTER) ErrorLogWrite( str );
 }
 //---------------------------------------------------------------------------
 void LogGC( int Line, int event, const char *msg, int Svrt )
@@ -298,6 +333,7 @@ void LogGC( int Line, int event, const char *msg, int Svrt )
 	else
 		sprintf( str, "[GC  ] [    ] [%d] %s %s", Svrt, sEvt, msg );
 	LogWrite( str );
+	if(Svrt >= DEFAULT_ERRLOG_FILTER) ErrorLogWrite( str );
 }
 //---------------------------------------------------------------------------
 void LogDX( int Line, int event, const char *msg, int Svrt )
@@ -313,6 +349,7 @@ void LogDX( int Line, int event, const char *msg, int Svrt )
 	else
 		sprintf( str, "[DX  ] [    ] [%d] %s %s", Svrt, sEvt, msg );
 	LogWrite( str );
+	if(Svrt >= DEFAULT_ERRLOG_FILTER) ErrorLogWrite( str );
 }
 //---------------------------------------------------------------------------
 void LogFunc( int Channel, const char *FuncName, int ret )
@@ -332,10 +369,19 @@ void LogWrite( const char *msg )
 	fflush( fLog );
 }
 //---------------------------------------------------------------------------
+void ErrorLogWrite( char *msg )
+{
+	time_t timer = time( NULL );
+	struct tm *tblock;
+	tblock = localtime( &timer );
+	fprintf( fErrorLog, "%04d/%02d/%02d %02d:%02d:%02d %s\n", tblock->tm_year + 1900, tblock->tm_mon, tblock->tm_mday, tblock->tm_hour, tblock->tm_min, tblock->tm_sec, msg );
+	fflush( fErrorLog );
+}
+//---------------------------------------------------------------------------
 int FindParam( char *ParamName )
 {
-	int i;
-	for(i = 0; i < MAXPARAMS; i++)
+	int paramCount = sizeof(Parameters)/sizeof(T_ParamDef);
+	for(int i = 0; i < paramCount; i++)
 		if(strcmp( ParamName, Parameters[i].Name ) == 0)
 			return Parameters[i].ID;
 	return -1;
@@ -344,11 +390,12 @@ int FindParam( char *ParamName )
 void LoadSettings()
 {
 	Log( TRC_SETT, -1, "Load Settings", 0 );
-	TotalChannels = DEFAULT_TOTALCHANNELS;
+	TotalChannels = DEFAULT_CHANNELSCNT;
 	TraceMask = DEFAULT_TRACEMASK;
 	SeverityFilter = DEFAULT_SEVERITYFILTER;
-	MinDuration = DEFAULT_MINDUR;
-	AddRandDuration = DEFAULT_ADDRANDDUR;
+	SendCallAck = DEFAULT_SENDCALLACK;
+	SendACM = DEFAULT_SENDACM;
+	strncpy( defaultFragment, DEFAULT_FRAGMENT, MAXPARAMSIZE );
 
 	char logstr[LOGSTRSIZE];
 	char str[MAXPARAMSIZE];
@@ -402,7 +449,7 @@ void LoadSettings()
 				}
 				else
 				{
-					TotalChannels = DEFAULT_TOTALCHANNELS;
+					TotalChannels = DEFAULT_CHANNELSCNT;
 					sprintf( logstr, "Wrong parameter set: %s=%s", ParamName, ParamValue );
 					Log( TRC_SETT, -1, logstr, 2 );
 				}
@@ -467,7 +514,7 @@ void LoadSettings()
 				}
 				else
 				{
-					SendCallAck = DEFAULT_SENDACM;
+					SendACM = DEFAULT_SENDACM;
 					sprintf( logstr, "Wrong parameter set: %s=%s", ParamName, ParamValue );
 					Log( TRC_SETT, -1, logstr, 2 );
 				}
@@ -531,39 +578,27 @@ void LoadSettings()
 				}
 				break;
 			case PRM_FRAGMENT:
-				if(sscanf( ParamValue, "%s", Fragment ) == 1)
+				if(sscanf( ParamValue, "%s", defaultFragment ) == 1)
 				{
-					sprintf( logstr, "Set Fragment = '%s'", Fragment );
+					sprintf( logstr, "Set Default Fragment = '%s'", defaultFragment );
 					Log( TRC_SETT, -1, logstr, 0 );
 				}
 				else
 				{
+					strncpy( defaultFragment, DEFAULT_FRAGMENT, MAXPARAMSIZE );
 					sprintf( logstr, "Wrong parameter set: %s=%s", ParamName, ParamValue );
 					Log( TRC_SETT, -1, logstr, 2 );
 				}
 				break;
-			case PRM_MINDUR:
-				if(sscanf( ParamValue, "%d", &MinDuration ) == 1)
+			case PRM_MODE:
+				if(sscanf( ParamValue, "%d", &Mode ) == 1)
 				{
-					sprintf( logstr, "Set MinDuration = %d", MinDuration );
+					sprintf( logstr, "Set Mode = %d", Mode );
 					Log( TRC_SETT, -1, logstr, 0 );
 				}
 				else
 				{
-					MinDuration = DEFAULT_MINDUR;
-					sprintf( logstr, "Wrong parameter set: %s=%s", ParamName, ParamValue );
-					Log( TRC_SETT, -1, logstr, 2 );
-				}
-				break;
-			case PRM_ADDRANDDUR:
-				if(sscanf( ParamValue, "%d", &AddRandDuration ) == 1)
-				{
-					sprintf( logstr, "Set AddRandDuration = %d", AddRandDuration );
-					Log( TRC_SETT, -1, logstr, 0 );
-				}
-				else
-				{
-					AddRandDuration = DEFAULT_ADDRANDDUR;
+					Mode = DEFAULT_MODE;
 					sprintf( logstr, "Wrong parameter set: %s=%s", ParamName, ParamValue );
 					Log( TRC_SETT, -1, logstr, 2 );
 				}
@@ -608,6 +643,8 @@ void InitChannels()
 		gclib_makecallp->origination.address_type = GCADDRTYPE_TRANSPARENT;
 		*/
 		ChannelInfo[i].blocked = 1;
+		ChannelInfo[i].VReady = 0;
+		ChannelInfo[i].N = i;
 		ChannelInfo[i].PState = PST_NULL;
 		for(callndx = 0; callndx < MAX_CALLS; callndx++)
 		{
@@ -673,6 +710,7 @@ void process_event( void )
 		{
 		case GCEV_OPENEX:
 			LogGC( index, evttype, "Channel is opened", 0 );
+			/*
 			ret = gc_GetResourceH( ChannelInfo[index].hdLine, &(ChannelInfo[index].hdVoice), GC_VOICEDEVICE );
 			LogFunc( index, "gc_GetResourceH()", ret );
 			ret = gc_SetAlarmNotifyAll( ChannelInfo[index].hdLine, ALARM_SOURCE_ID_NETWORK_ID, ALARM_NOTIFY );
@@ -683,18 +721,48 @@ void process_event( void )
 			gc_util_delete_parm_blk( parmblkp );
 			ret = dx_setevtmsk( ChannelInfo[index].hdVoice, DM_DIGITS );
 			LogFunc( index, "dx_setevtmsk()", ret );
+			*/
 			break;
 		case GCEV_UNBLOCKED:
 			LogGC( index, evttype, "Channel is unblocked", 0 );
+
+			ret = gc_GetResourceH( ChannelInfo[index].hdLine, &(ChannelInfo[index].hdVoice), GC_VOICEDEVICE );
+			LogFunc( index, "gc_GetResourceH()", ret );
+			if(ret == GC_SUCCESS)
+			{
+				ChannelInfo[index].VReady = 1;
+				stUnblocked++;
+			}
+			else
+			{
+			}
+			ret = gc_SetAlarmNotifyAll( ChannelInfo[index].hdLine, ALARM_SOURCE_ID_NETWORK_ID, ALARM_NOTIFY );
+			LogFunc( index, "gc_SetAlarmNotifyAll()", ret );
+			gc_util_insert_parm_val( &parmblkp, IPSET_DTMF, IPPARM_SUPPORT_DTMF_BITMASK, sizeof( char ), IP_DTMF_TYPE_RFC_2833 );
+			ret = gc_SetUserInfo( GCTGT_GCLIB_CHAN, ChannelInfo[index].hdLine, parmblkp, GC_ALLCALLS );
+			LogFunc( index, "gc_SetUserInfo(Set DTMF mode)", ret );
+			gc_util_delete_parm_blk( parmblkp );
+			ret = dx_setevtmsk( ChannelInfo[index].hdVoice, DM_DIGITS );
+			LogFunc( index, "dx_setevtmsk()", ret );
+
 			ChannelInfo[index].blocked = 0;
-			ret = gc_WaitCall( ChannelInfo[index].hdLine, NULL, NULL, 0, EV_ASYNC );
-			LogFunc( index, "gc_WaitCall()", ret );
+			if(ChannelInfo[index].VReady)
+			{
+				ret = gc_WaitCall( ChannelInfo[index].hdLine, NULL, NULL, 0, EV_ASYNC );
+				LogFunc( index, "gc_WaitCall()", ret );
+			}
+			else
+			{
+				Log( TRC_CORE, index, "VReady = 0. Do not call gc_WaitCall() now", 1 );
+			}
 			break;
 		case GCEV_OPENEX_FAIL:
 			LogGC( index, evttype, "Failed to open channel", 2 );
 			break;
 		case GCEV_OFFERED:
 		{
+			stUsed++;
+			stCallCntPerInterval++;
 			ChannelInfo[index].PState = PST_IDLE;
 			RegNewCall( index, TempCRN, GCST_OFFERED );
 			if(gc_GetCallInfo( TempCRN, DESTINATION_ADDRESS, st ) != -1)
@@ -769,92 +837,32 @@ void process_event( void )
 			ret = gc_AnswerCall( TempCRN, 0, EV_ASYNC );
 			LogFunc( index, "gc_AnswerCall()", ret );
 			break;
+
 		case GCEV_ANSWERED:
 			LogGC( index, evttype, "", 0 );
 			if(CallNdx != -1)
-				ChannelInfo[index].Calls[CallNdx].SState = GCST_CONNECTED;
-			else Log( TRC_GC, index, "CallIndex for CRN not found", 3 );
-			// Drop Call
-			/*
-							ret = gc_DropCall(TempCRN,GC_NORMAL_CLEARING,EV_ASYNC);
-			LogFunc(index, "gc_DropCall()", ret);
-			*/
-			// End Drop Call
-			// VOX PLAY
-			/*
-			if ((ChannelInfo[index].iott.io_fhandle = open("broadcast.vox",O_RDONLY)) != -1) {
-				ChannelInfo[index].iott.io_type=IO_EOT|IO_DEV;
-				ChannelInfo[index].iott.io_offset=(unsigned long)0;
-				ChannelInfo[index].iott.io_length=-1;
-				ret = dx_play(ChannelInfo[index].hdVoice, &ChannelInfo[index].iott, NULL, RM_SR8|EV_ASYNC);
-				LogFunc(index, "dx_play()", ret);
-				if (ret != GC_SUCCESS) {
-					close(ChannelInfo[index].iott.io_fhandle);
-									ChannelInfo[index].PState = PST_TERMINATION;
-									ret = gc_DropCall(TempCRN,GC_NORMAL_CLEARING,EV_ASYNC);
-					LogFunc(index, "gc_DropCall()", ret);
-				} else {
-					ChannelInfo[index].PState = PST_PLAY;
-					ChannelInfo[index].VState = VST_PLAY;
-				}
-			} else {
-			  Log(TRC_DX, index, "Play Error: unable open file", 2);
-							  ChannelInfo[index].PState = PST_TERMINATION;
-							  ret = gc_DropCall(TempCRN,GC_NORMAL_CLEARING,EV_ASYNC);
-			  LogFunc(index, "gc_DropCall()", ret);
-			}
-
-			// End VOX Play
-			*/
-			// WAV PLAY
-
-			if((ChannelInfo[index].iott.io_fhandle = open( "9999.wav", O_RDONLY )) != -1)
 			{
-				ChannelInfo[index].iott.io_type = IO_EOT | IO_DEV;
-				ChannelInfo[index].iott.io_offset = (unsigned long)0;
-				ChannelInfo[index].iott.io_length = -1;
-				ChannelInfo[index].xpb.wFileFormat = FILE_FORMAT_WAVE;
-				ret = dx_playiottdata( ChannelInfo[index].hdVoice, &ChannelInfo[index].iott, NULL, &ChannelInfo[index].xpb, EV_ASYNC );
-				LogFunc( index, "dx_playiottdata()", ret );
-				if(ret != GC_SUCCESS)
+				ChannelInfo[index].Calls[CallNdx].SState = GCST_CONNECTED;
+				switch(Mode)
 				{
-					close( ChannelInfo[index].iott.io_fhandle );
-					ChannelInfo[index].PState = PST_TERMINATION;
-					ret = gc_DropCall( TempCRN, GC_NORMAL_CLEARING, EV_ASYNC );
-					LogFunc( index, "gc_DropCall()", ret );
-				}
-				else
-				{
-					ChannelInfo[index].PState = PST_PLAY;
-					ChannelInfo[index].VState = VST_PLAY;
+				case 0:
+					Log( TRC_CORE, index, "Mode : 0 (Autoresponder). Default fragment will be played", 0 );
+					if(!InitPlayFragment( index, defaultFragment ))
+					{
+						ret = gc_DropCall( TempCRN, GC_NORMAL_CLEARING, EV_ASYNC );
+						LogFunc( index, "gc_DropCall()", ret );
+					}
+					break;
+				default:
+					Log( TRC_CORE, index, "Misconfiguration: unsupported Mode", 3 );
 				}
 			}
 			else
 			{
-				Log( TRC_DX, index, "Play Error: unable open file", 2 );
-				ChannelInfo[index].PState = PST_TERMINATION;
-				//ret = gc_DropCall(TempCRN,GC_NORMAL_CLEARING,EV_ASYNC);
+				Log( TRC_GC, index, "CallIndex for CRN not found", 3 );
 				ret = gc_DropCall( TempCRN, GC_NORMAL_CLEARING, EV_ASYNC );
 				LogFunc( index, "gc_DropCall()", ret );
 			}
-
-			// End WAV Play
-			// Get Digit
-			/*
-							ChannelInfo[index].tpt[0].tp_type   = IO_CONT;
-							ChannelInfo[index].tpt[0].tp_termno = DX_MAXDTMF;
-							ChannelInfo[index].tpt[0].tp_length = 1;
-							ChannelInfo[index].tpt[0].tp_flags  = TF_MAXDTMF;
-							ChannelInfo[index].tpt[1].tp_type = IO_EOT;
-							ChannelInfo[index].tpt[1].tp_termno = DX_MAXTIME;
-							ChannelInfo[index].tpt[1].tp_length = 50;
-							ChannelInfo[index].tpt[1].tp_flags = TF_MAXTIME;
-				Log(TRC_DX, index, "Digit collection. To stop press '#' Timeout = 5 sec", 0);
-			dx_clrdigbuf(ChannelInfo[index].hdVoice);
-							ret = dx_getdig(ChannelInfo[index].hdVoice, ChannelInfo[index].tpt, &(ChannelInfo[index].digbuf), EV_ASYNC);
-			LogFunc(index, "dx_getdig()", ret);
-			*/
-			// End Get Digit
 			break;
 
 		case GCEV_CONNECTED:
@@ -868,7 +876,7 @@ void process_event( void )
 			break;
 
 		case GCEV_DISCONNECTED:
-			ChannelInfo[index].PState = PST_TERMINATION;
+			ChannelInfo[index].PState = PST_RELEASING;
 			if(CallNdx == -1)
 			{  // Should not be such case
 				LogGC( index, evttype, "CallIndex for CRN not found", 3 );
@@ -925,13 +933,14 @@ void process_event( void )
 			LogFunc( index, "gc_ReleaseCallEx()", ret );
 			break;
 		case GCEV_RELEASECALL:
+			stUsed--;
 			LogGC( index, evttype, "", 0 );
-			if(ChannelInfo[index].PState == PST_INTERRUPTING)
+			if(ChannelInfo[index].PState == PST_RELEASING)
 			{
-				ChannelInfo[index].PState = PST_INTERRUPTED;
+				ChannelInfo[index].PState = PST_IDLE;
 			}
-			else
-			{
+			//else
+			//{
 				if(CallNdx == -1)
 				{
 					Log( TRC_GC, index, "CallIndex for CRN not found", 3 );
@@ -948,7 +957,7 @@ void process_event( void )
 						Log( TRC_GC, index, "got event at unexpected SState", 3 );
 					}
 				}
-			}
+			//}
 			break;
 		case GCEV_RESETLINEDEV:
 			LogGC( index, evttype, "", 0 );
@@ -1137,11 +1146,41 @@ int GetIndexByVoice( int dev )
 			return i;
 	return -1;
 }
+//---------------------------------------------------------------------------------
+bool InitPlayFragment( int index, const char *filename )
+{
+	int ret;
+	if ((ChannelInfo[index].iott.io_fhandle = open( filename, O_RDONLY )) != -1)
+	{
+		ChannelInfo[index].iott.io_type = IO_EOT | IO_DEV;
+		ChannelInfo[index].iott.io_offset = (unsigned long)0;
+		ChannelInfo[index].iott.io_length = -1;
+		ChannelInfo[index].xpb.wFileFormat = FILE_FORMAT_WAVE;
+		ret = dx_playiottdata( ChannelInfo[index].hdVoice, &(ChannelInfo[index].iott), NULL, &(ChannelInfo[index].xpb), EV_ASYNC );
+		LogFunc( index, "dx_playiottdata()", ret );
+		if(ret != GC_SUCCESS)
+		{
+			close( ChannelInfo[index].iott.io_fhandle );
+			return false;
+		}
+		else
+		{
+			ChannelInfo[index].PState = PST_PLAY;
+			ChannelInfo[index].VState = VST_PLAY;
+			return true;
+		}
+	}
+	else
+	{
+		Log( TRC_DX, index, "Play Error: unable open file", 2 );
+		return false;
+	}
+}
 //---------------------------------------------------------------------------
 void InitDisconnect( int N )
 {
 	int ret;
-	ChannelInfo[N].PState = PST_TERMINATION;
+	ChannelInfo[N].PState = PST_RELEASING;
 	ret = gc_DropCall( ChannelInfo[N].Calls[0].crn, GC_NORMAL_CLEARING, EV_ASYNC );
 	LogFunc( N, "gc_DropCall()", ret );
 }
@@ -1161,5 +1200,16 @@ void InitNewCall( int N )
 		ChannelInfo[N].Calls[0].SState = GCST_NULL;
 		ChannelInfo[N].PState = PST_IDLE;
 	}
+}
+//---------------------------------------------------------------------------------
+void writeStatistics()
+{
+	struct tm *tblock;
+	tblock = localtime( &start_time );
+
+	fprintf( fStat, "%04d/%02d/%02d %02d:%02d:%02d  %4d %4d %4d\n",
+		tblock->tm_year + 1900, tblock->tm_mon, tblock->tm_mday, tblock->tm_hour, tblock->tm_min, tblock->tm_sec,
+		TotalChannels, stUnblocked, stUsed );
+	fflush( fStat );
 }
 //---------------------------------------------------------------------------------

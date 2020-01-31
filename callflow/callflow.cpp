@@ -1,5 +1,6 @@
 /* OS Header Files */
 #include <stdio.h>
+#include <stdarg.h>
 #include <stdlib.h>
 #include <ctype.h>
 #include <string.h>
@@ -38,7 +39,7 @@ int main( void )
 
 	time( &start_time );
 	InitLogFile();
-	Log( TRC_CORE, -1, "********** IVR server started ***********", 0 );
+	Log( TRC_CORE, TRC_INFO, -1, "********** IVR server started ***********" );
 
 	// Give control to Event Handler
 
@@ -59,7 +60,7 @@ int main( void )
 	InitChannels();
 
 	// Forever loop where the main work is done - wait for an event or user requested exit
-	Log( TRC_CORE, -1, "Entering Working State", 0 );
+	Log( TRC_CORE, TRC_INFO, -1, "Entering Working State" );
 	for(;;)
 	{
 		ret = sr_waitevt( 500 );					// 1/2 second
@@ -84,13 +85,13 @@ int main( void )
 				if(ChannelInfo[i].PState != PST_SHUTDOWN)
 				{
 					sprintf( str, "Waiting for channel [%d], state %d", i, ChannelInfo[i].PState );
-					Log( TRC_CORE, -1, str, 0 );
+					Log( TRC_CORE, TRC_DUMP, -1, str );
 					fCanClose = 0;
 				}
 			}
 			if(fCanClose)
 			{
-				Log( TRC_CORE, -1, "Application Stopped", 2 );
+				Log( TRC_CORE, TRC_WARNING, -1, "Application Stopped" );
 				fclose( fLog );
 				fclose( fErrorLog );
 				fclose( fStat );
@@ -121,18 +122,18 @@ void init_srl_mode()
 #ifdef _WIN32
 	if(sr_setparm( SRL_DEVICE, SR_MODELTYPE, &mode ) == -1)
 	{
-		Log( TRC_CORE, -1, "Unable to set to SR_STASYNC | SR_POLLMODE", 4 );
+		Log( TRC_CORE, TRC_CRITICAL, -1, "Unable to set to SR_STASYNC | SR_POLLMODE" );
 		exit( 1 );
 	}
-	Log( TRC_CORE, -1, "SRL Model Set to SR_STASYNC | SR_POLLMODE", 0 );
+	Log( TRC_CORE, TRC_DUMP, -1, "SRL Model Set to SR_STASYNC | SR_POLLMODE" );
 #else
 	if(sr_setparm( SRL_DEVICE, SR_MODEID, &mode ) == -1)
 	{
-		Log( TRC_CORE, -1, "Unable to set mode ID to SR_POLLMODE ", 4 );
+		Log( TRC_CORE, TRC_CRITICAL, -1, "Unable to set mode ID to SR_POLLMODE " );
 		exit( 1 );
 	}
 
-	Log( TRC_CORE, -1, "SRL mode ID set to SR_POLLMODE", 0 );
+	Log( TRC_CORE, TRC_DUMP , -1, "SRL mode ID set to SR_POLLMODE" );
 #endif
 }
 /***************************************************************************
@@ -146,7 +147,7 @@ void init_srl_mode()
   ***************************************************************************/
 static void intr_hdlr( int receivedSignal )
 {
-	Log( TRC_CORE, -1, " *******Received User Interrupted Signal *******", 2 );
+	Log( TRC_CORE, TRC_WARNING, -1, " *******Received User Interrupted Signal *******" );
 	Deinit();
 	interrupted = YES;
 }
@@ -185,7 +186,7 @@ void InitLogFile()
 //---------------------------------------------------------------------------
 void InitDialogicLibs()
 {
-	Log( TRC_CORE, -1, "Init dialogic Libs", 0 );
+	Log( TRC_CORE, TRC_DUMP, -1, "Init dialogic Libs" );
 	int i;
 	char str[LOGSTRSIZE];
 	GC_CCLIB_STATUSALL	cclib_status_all;
@@ -223,18 +224,18 @@ void InitDialogicLibs()
 	if(gc_Start( &gcLibStart ) != GC_SUCCESS)
 	{
 		sprintf( str, "gc_Start() Failed" );
-		Log( TRC_CORE, -1, str, 4 );
+		Log( TRC_CORE, TRC_CRITICAL, -1, str );
 		exit( 1 );
 	}
 
 	if(gc_CCLibStatusEx( (char *)"GC_ALL_LIB", &cclib_status_all ) != GC_SUCCESS)
 	{
 		sprintf( str, "gc_CCLibStatusEx(GC_ALL_LIB, &cclib_status_all) Failed" );
-		Log( TRC_CORE, -1, str, 4 );
+		Log( TRC_CORE, TRC_CRITICAL, -1, str );
 		exit( 1 );
 	}
 	strcpy( str, " Call Control Library Status:" );
-	Log( TRC_CORE, -1, str, 0 );
+	Log( TRC_CORE, TRC_DUMP, -1, str );
 	for(i = 0; i < GC_TOTAL_CCLIBS; i++)
 	{
 		switch(cclib_status_all.cclib_state[i].state)
@@ -257,15 +258,15 @@ void InitDialogicLibs()
 
 
 		}
-		Log( TRC_CORE, -1, str, 0 );
+		Log( TRC_CORE, TRC_DUMP, -1, str );
 	}
 	strcpy( str, " ----------------------------" );
-	Log( TRC_CORE, -1, str, 0 );
+	Log( TRC_CORE, TRC_DUMP, -1, str );
 }
 //---------------------------------------------------------------------------
 void Deinit()
 {
-	Log( TRC_CORE, -1, "Deinitialization", 0 );
+	Log( TRC_CORE, TRC_INFO, -1, "Deinitialization" );
 	int i;
 	int ret;
 	for(i = 0; i<TotalChannels; i++)
@@ -297,85 +298,93 @@ void Deinit()
 	}
 }
 //---------------------------------------------------------------------------
-void Log( int Src, int Line, const char *msg, int Svrt )
+void Log( int Src, int Svrt, int Line, const char *format, ... )
 {
-	if((TraceMask & Src) == 0) return;
-	if(Svrt < SeverityFilter)  return;
+	char str[LOGSTRSIZE];	// Full log string
+	char msg[LOGSTRSIZE];	// Message part
 
-	char str[LOGSTRSIZE];
-	char sSrc[16];
+	// Form log source part
+	std::string logSource = "";
 	switch(Src)
 	{
-	case TRC_CORE: strcpy( sSrc, "CORE" ); break;
-	case TRC_GC:   strcpy( sSrc, "GC  " ); break;
-	case TRC_DX:   strcpy( sSrc, "DX  " ); break;
-	case TRC_SETT: strcpy( sSrc, "SETT" ); break;
-	default: sprintf( sSrc, "[  %02d]", Src );
+	case TRC_CORE: logSource = "CORE"; break;
+	case TRC_GC:   logSource = "GC  "; break;
+	case TRC_DX:   logSource = "DX  "; break;
+	case TRC_SETT: logSource = "SETT"; break;
 	}
+
+	// Form verbal severity description
+	std::string severityDescr = "";
+	switch(Svrt)
+	{
+	case TRC_DUMP:     severityDescr = "DUMP    "; break;
+	case TRC_INFO:     severityDescr = "INFO    "; break;
+	case TRC_WARNING:  severityDescr = "WARNING "; break;
+	case TRC_ERROR:    severityDescr = "ERROR   "; break;
+	case TRC_CRITICAL: severityDescr = "CRITICAL"; break;
+	}
+
+	// Form message
+	va_list args;
+	va_start( args, format );
+	vsprintf( msg, format, args );
+	va_end( args );
+
 	if(Line >= 0)
-		sprintf( str, "[%s] [%04d] [%d] %s", sSrc, Line, Svrt, msg );
+		snprintf( str, LOGSTRSIZE, "[%s] %s [%04d] %s", logSource.c_str(), severityDescr.c_str(), Line, msg );
 	else
-		sprintf( str, "[%s] [    ] [%d] %s", sSrc, Svrt, msg );
-	LogWrite( str );
-	if(Svrt >= DEFAULT_ERRLOG_FILTER) ErrorLogWrite( str );
+		snprintf( str, LOGSTRSIZE, "[%s] %s [    ] %s", logSource.c_str(), severityDescr.c_str(), msg );
+
+	LogWrite( str, Svrt );
 }
 //---------------------------------------------------------------------------
-void LogGC( int Line, int event, const char *msg, int Svrt )
+void LogGC( int Svrt, int Line, int event, const char *msg )
 {
-	if((TraceMask & TRC_GC) == 0) return;
-	if(Svrt < SeverityFilter)  return;
 	char str[LOGSTRSIZE];
 	char sEvt[GCEVENTNAMESIZE];
-	strcpy( sEvt, GcEventNames[event - DT_GC] );
-	if(sEvt[0] == 0) sprintf( sEvt, "0x%04x", event );
-	if(Line >= 0)
-		sprintf( str, "[GC  ] [%04d] [%d] %s %s", Line, Svrt, sEvt, msg );
-	else
-		sprintf( str, "[GC  ] [    ] [%d] %s %s", Svrt, sEvt, msg );
-	LogWrite( str );
-	if(Svrt >= DEFAULT_ERRLOG_FILTER) ErrorLogWrite( str );
+	strncpy( sEvt, GcEventNames[event - DT_GC], GCEVENTNAMESIZE );
+	if(sEvt[0] == 0) snprintf( sEvt, GCEVENTNAMESIZE, "0x%04x", event );
+	snprintf(str, LOGSTRSIZE, "%s %s", sEvt, msg );
+	Log( TRC_GC, Svrt, Line, str );
 }
 //---------------------------------------------------------------------------
-void LogDX( int Line, int event, const char *msg, int Svrt )
+void LogDX( int Svrt, int Line, int event, const char *msg )
 {
-	if((TraceMask & TRC_DX) == 0) return;
-	if(Svrt < SeverityFilter)  return;
 	char str[LOGSTRSIZE];
 	char sEvt[GCEVENTNAMESIZE];
-	strcpy( sEvt, DxEventNames[event - 0x81] );
-	if(sEvt[0] == 0) sprintf( sEvt, "0x%04x", event );
-	if(Line >= 0)
-		sprintf( str, "[DX  ] [%04d] [%d] %s %s", Line, Svrt, sEvt, msg );
-	else
-		sprintf( str, "[DX  ] [    ] [%d] %s %s", Svrt, sEvt, msg );
-	LogWrite( str );
-	if(Svrt >= DEFAULT_ERRLOG_FILTER) ErrorLogWrite( str );
+	strncpy( sEvt, DxEventNames[event - 0x81], GCEVENTNAMESIZE );
+	if(sEvt[0] == 0) snprintf( sEvt, GCEVENTNAMESIZE, "0x%04x", event );
+	snprintf( str, LOGSTRSIZE, "%s %s", sEvt, msg );
+	Log( TRC_DX, Svrt, Line, str );
 }
 //---------------------------------------------------------------------------
-void LogFunc( int Channel, const char *FuncName, int ret )
+void LogFunc( int Line, const char *FuncName, int ret )
 {
 	char str[LOGSTRSIZE];
 	sprintf( str, "%s : %s", FuncName, (ret == GC_SUCCESS) ? "Ok" : "Error" );
-	Log( TRC_CORE, Channel, str, (ret == GC_SUCCESS) ? 0 : 2 );
+	Log( TRC_CORE, (ret == GC_SUCCESS) ? 0 : 2, Line, str );
 }
 //---------------------------------------------------------------------------
-void LogWrite( const char *msg )
+void LogWrite( const char *msg, int Svrt )
 {
+	/*
+	// TODO: Implement filtering (non-error log only) if required
+	if((TraceMask & Src) == 0) return;
+	if(Svrt < SeverityFilter)  return;
+	*/
+
 	time_t timer = time( NULL );
 	struct tm *tblock;
 	tblock = localtime( &timer );
 	printf( "%04d/%02d/%02d %02d:%02d:%02d %s\n", tblock->tm_year + 1900, tblock->tm_mon, tblock->tm_mday, tblock->tm_hour, tblock->tm_min, tblock->tm_sec, msg );
 	fprintf( fLog, "%04d/%02d/%02d %02d:%02d:%02d %s\n", tblock->tm_year + 1900, tblock->tm_mon, tblock->tm_mday, tblock->tm_hour, tblock->tm_min, tblock->tm_sec, msg );
 	fflush( fLog );
-}
-//---------------------------------------------------------------------------
-void ErrorLogWrite( char *msg )
-{
-	time_t timer = time( NULL );
-	struct tm *tblock;
-	tblock = localtime( &timer );
-	fprintf( fErrorLog, "%04d/%02d/%02d %02d:%02d:%02d %s\n", tblock->tm_year + 1900, tblock->tm_mon, tblock->tm_mday, tblock->tm_hour, tblock->tm_min, tblock->tm_sec, msg );
-	fflush( fErrorLog );
+
+	if(Svrt >= DEFAULT_ERRLOG_FILTER)
+	{
+		fprintf( fErrorLog, "%04d/%02d/%02d %02d:%02d:%02d %s\n", tblock->tm_year + 1900, tblock->tm_mon, tblock->tm_mday, tblock->tm_hour, tblock->tm_min, tblock->tm_sec, msg );
+		fflush( fErrorLog );
+	}
 }
 //---------------------------------------------------------------------------
 int FindParam( char *ParamName )
@@ -389,7 +398,7 @@ int FindParam( char *ParamName )
 //---------------------------------------------------------------------------
 void LoadSettings()
 {
-	Log( TRC_SETT, -1, "Load Settings", 0 );
+	Log( TRC_SETT, TRC_DUMP, -1, "Load Settings" );
 	TotalChannels = DEFAULT_CHANNELSCNT;
 	TraceMask = DEFAULT_TRACEMASK;
 	SeverityFilter = DEFAULT_SEVERITYFILTER;
@@ -406,7 +415,7 @@ void LoadSettings()
 	FILE *f = fopen( "params.ini", "r" );
 	if(f == NULL)
 	{
-		Log( TRC_SETT, -1, "Cannot find 'params.ini'", 4 );
+		Log( TRC_SETT, TRC_CRITICAL, -1, "Cannot find 'params.ini'" );
 		exit( 1 );
 	}
 	while(!feof( f ))
@@ -435,7 +444,7 @@ void LoadSettings()
 		if(PN == -1)
 		{
 			sprintf( logstr, "Unknown parameter definition: %s=%s", ParamName, ParamValue );
-			Log( TRC_SETT, -1, logstr, 1 );
+			Log( TRC_SETT, TRC_ERROR, -1, logstr );
 		}
 		else
 		{
@@ -445,78 +454,78 @@ void LoadSettings()
 				if(sscanf( ParamValue, "%d", &TotalChannels ) == 1)
 				{
 					sprintf( logstr, "Set TotalChannels = %d", TotalChannels );
-					Log( TRC_SETT, -1, logstr, 0 );
+					Log( TRC_SETT, TRC_DUMP, -1, logstr );
 				}
 				else
 				{
 					TotalChannels = DEFAULT_CHANNELSCNT;
 					sprintf( logstr, "Wrong parameter set: %s=%s", ParamName, ParamValue );
-					Log( TRC_SETT, -1, logstr, 2 );
+					Log( TRC_SETT, TRC_ERROR, -1, logstr );
 				}
 				break;
 			case PRM_FIRSTCHANNEL:
 				if(sscanf( ParamValue, "%d", &FirstChannel ) == 1)
 				{
 					sprintf( logstr, "Set FirstChannel = %d", FirstChannel );
-					Log( TRC_SETT, -1, logstr, 0 );
+					Log( TRC_SETT, TRC_DUMP, -1, logstr );
 				}
 				else
 				{
 					FirstChannel = DEFAULT_FIRSTCHANNEL;
 					sprintf( logstr, "Wrong parameter set: %s=%s", ParamName, ParamValue );
-					Log( TRC_SETT, -1, logstr, 2 );
+					Log( TRC_SETT, TRC_ERROR, -1, logstr );
 				}
 				break;
 			case PRM_TRACEMASK:
 				if(sscanf( ParamValue, "%d", &TraceMask ) == 1)
 				{
 					sprintf( logstr, "Set TraceMask = %d", TraceMask );
-					Log( TRC_SETT, -1, logstr, 0 );
+					Log( TRC_SETT, TRC_DUMP, -1, logstr );
 				}
 				else
 				{
 					TraceMask = DEFAULT_TRACEMASK;
 					sprintf( logstr, "Wrong parameter set: %s=%s", ParamName, ParamValue );
-					Log( TRC_SETT, -1, logstr, 2 );
+					Log( TRC_SETT, TRC_ERROR, -1, logstr );
 				}
 				break;
 			case PRM_SVRTFILTER:
 				if(sscanf( ParamValue, "%d", &SeverityFilter ) == 1)
 				{
 					sprintf( logstr, "Set SeverityFilter = %d", SeverityFilter );
-					Log( TRC_SETT, -1, logstr, 0 );
+					Log( TRC_SETT, TRC_DUMP, -1, logstr );
 				}
 				else
 				{
 					SeverityFilter = DEFAULT_SEVERITYFILTER;
 					sprintf( logstr, "Wrong parameter set: %s=%s", ParamName, ParamValue );
-					Log( TRC_SETT, -1, logstr, 2 );
+					Log( TRC_SETT, TRC_ERROR, -1, logstr );
 				}
 				break;
 			case PRM_SENDCALLACK:
 				if(sscanf( ParamValue, "%d", &SendCallAck ) == 1)
 				{
 					sprintf( logstr, "Set SendCallAck = %d", SendCallAck );
-					Log( TRC_SETT, -1, logstr, 0 );
+					Log( TRC_SETT, TRC_DUMP, -1, logstr );
 				}
 				else
 				{
 					SendCallAck = DEFAULT_SENDCALLACK;
 					sprintf( logstr, "Wrong parameter set: %s=%s", ParamName, ParamValue );
-					Log( TRC_SETT, -1, logstr, 2 );
+					Log( TRC_SETT, TRC_ERROR, -1, logstr );
 				}
 				break;
 			case PRM_SENDACM:
 				if(sscanf( ParamValue, "%d", &SendACM ) == 1)
 				{
 					sprintf( logstr, "Set SendACM = %d", SendACM );
-					Log( TRC_SETT, -1, logstr, 0 );
+					Log( TRC_SETT, TRC_DUMP, -1, logstr );
 				}
 				else
 				{
 					SendACM = DEFAULT_SENDACM;
 					sprintf( logstr, "Wrong parameter set: %s=%s", ParamName, ParamValue );
-					Log( TRC_SETT, -1, logstr, 2 );
+					Log( TRC_SETT, TRC_ERROR, -1, logstr );
 				}
 				break;
 			case PRM_LOCALIP:
@@ -526,86 +535,86 @@ void LoadSettings()
 					if(LocalIP != -1)
 					{
 						sprintf( logstr, "LocalIP = %s", sLocalIP );
-						Log( TRC_SETT, -1, logstr, 0 );
+						Log( TRC_SETT, TRC_DUMP, -1, logstr );
 					}
 					else
 					{
 						sprintf( logstr, "Wrong LocalIP settings : [%s]", sLocalIP );
-						Log( TRC_SETT, -1, logstr, 2 );
+						Log( TRC_SETT, TRC_ERROR, -1, logstr );
 					}
 				}
 				else
 				{
 					LocalIP = -1;
 					sprintf( logstr, "Wrong parameter set: %s=%s", ParamName, ParamValue );
-					Log( TRC_SETT, -1, logstr, 2 );
+					Log( TRC_SETT, TRC_ERROR, -1, logstr );
 				}
 				break;
 			case PRM_MSCIP:
 				if(sscanf( ParamValue, "%s", MSCIP ) == 1)
 				{
 					sprintf( logstr, "Set MSCIP = '%s'", MSCIP );
-					Log( TRC_SETT, -1, logstr, 0 );
+					Log( TRC_SETT, TRC_DUMP, -1, logstr );
 				}
 				else
 				{
 					sprintf( logstr, "Wrong parameter set: %s=%s", ParamName, ParamValue );
-					Log( TRC_SETT, -1, logstr, 2 );
+					Log( TRC_SETT, TRC_ERROR, -1, logstr );
 				}
 				break;
 			case PRM_CDPN:
 				if(sscanf( ParamValue, "%s", CdPN ) == 1)
 				{
 					sprintf( logstr, "Set CdPN = '%s'", CdPN );
-					Log( TRC_SETT, -1, logstr, 0 );
+					Log( TRC_SETT, TRC_DUMP, -1, logstr );
 				}
 				else
 				{
 					sprintf( logstr, "Wrong parameter set: %s=%s", ParamName, ParamValue );
-					Log( TRC_SETT, -1, logstr, 2 );
+					Log( TRC_SETT, TRC_ERROR, -1, logstr );
 				}
 				break;
 			case PRM_CGPN:
 				if(sscanf( ParamValue, "%s", CgPN ) == 1)
 				{
 					sprintf( logstr, "Set CgPN = '%s'", CgPN );
-					Log( TRC_SETT, -1, logstr, 0 );
+					Log( TRC_SETT, TRC_DUMP, -1, logstr );
 				}
 				else
 				{
 					sprintf( logstr, "Wrong parameter set: %s=%s", ParamName, ParamValue );
-					Log( TRC_SETT, -1, logstr, 2 );
+					Log( TRC_SETT, TRC_ERROR, -1, logstr );
 				}
 				break;
 			case PRM_FRAGMENT:
 				if(sscanf( ParamValue, "%s", defaultFragment ) == 1)
 				{
 					sprintf( logstr, "Set Default Fragment = '%s'", defaultFragment );
-					Log( TRC_SETT, -1, logstr, 0 );
+					Log( TRC_SETT, TRC_DUMP, -1, logstr );
 				}
 				else
 				{
 					strncpy( defaultFragment, DEFAULT_FRAGMENT, MAXPARAMSIZE );
 					sprintf( logstr, "Wrong parameter set: %s=%s", ParamName, ParamValue );
-					Log( TRC_SETT, -1, logstr, 2 );
+					Log( TRC_SETT, TRC_ERROR, -1, logstr );
 				}
 				break;
 			case PRM_MODE:
 				if(sscanf( ParamValue, "%d", &Mode ) == 1)
 				{
 					sprintf( logstr, "Set Mode = %d", Mode );
-					Log( TRC_SETT, -1, logstr, 0 );
+					Log( TRC_SETT, TRC_DUMP, -1, logstr );
 				}
 				else
 				{
 					Mode = DEFAULT_MODE;
 					sprintf( logstr, "Wrong parameter set: %s=%s", ParamName, ParamValue );
-					Log( TRC_SETT, -1, logstr, 2 );
+					Log( TRC_SETT, TRC_ERROR, -1, logstr );
 				}
 				break;
 			default:
 				sprintf( logstr, "Unimplemented initialization: %s=%s", ParamName, ParamValue );
-				Log( TRC_SETT, -1, logstr, 2 );
+				Log( TRC_SETT, TRC_ERROR, -1, logstr );
 			}
 		}
 	}
@@ -614,7 +623,7 @@ void LoadSettings()
 //---------------------------------------------------------------------------
 void InitChannels()
 {
-	LogWrite( "Init Channels" );
+	Log( TRC_CORE, TRC_INFO, -1, "Init Channels" );
 	int i, callndx;
 	int ret;
 	char str[LOGSTRSIZE];
@@ -695,7 +704,7 @@ void process_event( void )
 	if(gc_GetMetaEvent( &metaevent ) != GC_SUCCESS)
 	{
 		// serious problem - should never fail
-		Log( TRC_CORE, -1, "gc_GetMetaEvent() failed", 3 );
+		Log( TRC_CORE, TRC_ERROR, -1, "gc_GetMetaEvent() failed" );
 		return;
 	}
 
@@ -709,7 +718,7 @@ void process_event( void )
 		switch(evttype)
 		{
 		case GCEV_OPENEX:
-			LogGC( index, evttype, "Channel is opened", 0 );
+			LogGC( TRC_INFO, index, evttype, "Channel is opened" );
 			/*
 			ret = gc_GetResourceH( ChannelInfo[index].hdLine, &(ChannelInfo[index].hdVoice), GC_VOICEDEVICE );
 			LogFunc( index, "gc_GetResourceH()", ret );
@@ -724,7 +733,7 @@ void process_event( void )
 			*/
 			break;
 		case GCEV_UNBLOCKED:
-			LogGC( index, evttype, "Channel is unblocked", 0 );
+			LogGC( TRC_INFO, index, evttype, "Channel is unblocked" );
 
 			ret = gc_GetResourceH( ChannelInfo[index].hdLine, &(ChannelInfo[index].hdVoice), GC_VOICEDEVICE );
 			LogFunc( index, "gc_GetResourceH()", ret );
@@ -753,11 +762,11 @@ void process_event( void )
 			}
 			else
 			{
-				Log( TRC_CORE, index, "VReady = 0. Do not call gc_WaitCall() now", 1 );
+				Log( TRC_CORE, TRC_WARNING, index, "VReady = 0. Do not call gc_WaitCall() now" );
 			}
 			break;
 		case GCEV_OPENEX_FAIL:
-			LogGC( index, evttype, "Failed to open channel", 2 );
+			LogGC( TRC_ERROR, index, evttype, "Failed to open channel" );
 			break;
 		case GCEV_OFFERED:
 		{
@@ -785,7 +794,7 @@ void process_event( void )
 			}
 
 			sprintf( str, "CgPN:[%s] CdPN:[%s] RdPN:[%s] (reason=%d)", ChannelInfo[index].CgPN, ChannelInfo[index].CdPN, ChannelInfo[index].RdPN, ChannelInfo[index].reasonCode );
-			LogGC( index, evttype, str, 0 );
+			LogGC( TRC_INFO, index, evttype, str );
 			if(SendCallAck > 0)
 			{
 				GC_CALLACK_BLK callack; /* type & number of digits to collect */
@@ -794,7 +803,7 @@ void process_event( void )
 				{
 					gc_ErrorInfo( &gc_error_info );
 					sprintf( str, "Error gc_CallAck() %s", gc_error_info.ccMsg );
-					Log( TRC_CORE, index, str, 2 );
+					Log( TRC_CORE, TRC_ERROR, index, str );
 				}
 				else
 				{
@@ -817,7 +826,7 @@ void process_event( void )
 			break;
 		}
 		case GCEV_CALLPROC:
-			LogGC( index, evttype, "", 0 );
+			LogGC( TRC_INFO, index, evttype, "" );
 			if(SendACM > 0)
 			{
 				ret = gc_AcceptCall( TempCRN, 0, EV_ASYNC );
@@ -830,23 +839,23 @@ void process_event( void )
 			}
 			break;
 		case GCEV_ACCEPT:
-			LogGC( index, evttype, "", 0 );
+			LogGC( TRC_INFO, index, evttype, "" );
 			if(CallNdx != -1)
 				ChannelInfo[index].Calls[CallNdx].SState = GCST_ACCEPTED;
-			else Log( TRC_GC, index, "CallIndex for CRN not found", 3 );
+			else Log( TRC_GC, TRC_ERROR, index, "CallIndex for CRN not found" );
 			ret = gc_AnswerCall( TempCRN, 0, EV_ASYNC );
 			LogFunc( index, "gc_AnswerCall()", ret );
 			break;
 
 		case GCEV_ANSWERED:
-			LogGC( index, evttype, "", 0 );
+			LogGC( TRC_INFO, index, evttype, "" );
 			if(CallNdx != -1)
 			{
 				ChannelInfo[index].Calls[CallNdx].SState = GCST_CONNECTED;
 				switch(Mode)
 				{
 				case 0:
-					Log( TRC_CORE, index, "Mode : 0 (Autoresponder). Default fragment will be played", 0 );
+					Log( TRC_CORE, TRC_INFO, index, "Mode : 0 (Autoresponder). Default fragment will be played" );
 					if(!InitPlayFragment( index, defaultFragment ))
 					{
 						ret = gc_DropCall( TempCRN, GC_NORMAL_CLEARING, EV_ASYNC );
@@ -854,23 +863,23 @@ void process_event( void )
 					}
 					break;
 				default:
-					Log( TRC_CORE, index, "Misconfiguration: unsupported Mode", 3 );
+					Log( TRC_CORE, TRC_ERROR, index, "Misconfiguration: unsupported Mode" );
 				}
 			}
 			else
 			{
-				Log( TRC_GC, index, "CallIndex for CRN not found", 3 );
+				Log( TRC_GC, TRC_ERROR, index, "CallIndex for CRN not found" );
 				ret = gc_DropCall( TempCRN, GC_NORMAL_CLEARING, EV_ASYNC );
 				LogFunc( index, "gc_DropCall()", ret );
 			}
 			break;
 
 		case GCEV_CONNECTED:
-			LogGC( index, evttype, "", 0 );
+			LogGC( TRC_INFO, index, evttype, "" );
 			if(CallNdx != -1)
 				ChannelInfo[index].Calls[CallNdx].SState = GCST_CONNECTED;
 			else
-				Log( TRC_GC, index, "CallIndex for CRN not found", 3 );
+				Log( TRC_GC, TRC_ERROR, index, "CallIndex for CRN not found" );
 			// TODO: Init play file, or do other task
 			ret = gc_DropCall( TempCRN, GC_NORMAL_CLEARING, EV_ASYNC );
 			break;
@@ -879,7 +888,7 @@ void process_event( void )
 			ChannelInfo[index].PState = PST_RELEASING;
 			if(CallNdx == -1)
 			{  // Should not be such case
-				LogGC( index, evttype, "CallIndex for CRN not found", 3 );
+				LogGC( TRC_ERROR, index, evttype, "CallIndex for CRN not found" );
 				ret = gc_DropCall( TempCRN, GC_NORMAL_CLEARING, EV_ASYNC );
 				LogFunc( index, "gc_DropCall()", ret );
 			}
@@ -888,7 +897,7 @@ void process_event( void )
 				switch(ChannelInfo[index].Calls[CallNdx].SState)
 				{
 				case GCST_CONNECTED: // Network Terminated
-					LogGC( index, evttype, "Network terminated", 0 );
+					LogGC( TRC_INFO, index, evttype, "Network terminated" );
 					ChannelInfo[index].Calls[CallNdx].SState = GCST_DISCONNECTED;
 					ret = gc_DropCall( TempCRN, GC_NORMAL_CLEARING, EV_ASYNC );
 					LogFunc( index, "gc_DropCall()", ret );
@@ -896,18 +905,18 @@ void process_event( void )
 				case GCST_DIALING:   // Network rejects || Glare
 					ChannelInfo[index].Calls[CallNdx].SState = GCST_DISCONNECTED;
 					if(CallNdx == 0)
-						LogGC( index, evttype, "Network rejected outgoing call. USER BUSY", 0 );
+						LogGC( TRC_WARNING, index, evttype, "Network rejected outgoing call. USER BUSY" );
 					else
-						LogGC( index, evttype, "Network rejected outgoing call. GLARE", 0 );
+						LogGC( TRC_WARNING, index, evttype, "Network rejected outgoing call. GLARE" );
 					ret = gc_DropCall( TempCRN, GC_NORMAL_CLEARING, EV_ASYNC );
 					LogFunc( index, "gc_DropCall()", ret );
 					break;
 				case GCST_DISCONNECTED:  // Simul. discconnect
-					LogGC( index, evttype, "Simultaneous disconnect", 0 );
+					LogGC( TRC_WARNING, index, evttype, "Simultaneous disconnect" );
 					break;
 				default:
 					sprintf( str, "Disconnect at unexpected SState %d", ChannelInfo[index].Calls[CallNdx].SState );
-					LogGC( index, evttype, str, 1 );
+					LogGC( TRC_ERROR, index, evttype, str );
 					ChannelInfo[index].Calls[CallNdx].SState = GCST_DISCONNECTED;
 					ret = gc_DropCall( TempCRN, GC_NORMAL_CLEARING, EV_ASYNC );
 					LogFunc( index, "gc_DropCall()", ret );
@@ -915,7 +924,7 @@ void process_event( void )
 			}
 			break;
 		case GCEV_DROPCALL:
-			LogGC( index, evttype, "", 0 );
+			LogGC( TRC_INFO, index, evttype, "" );
 			state = ATDX_STATE( ChannelInfo[index].hdVoice );
 			if((state == CS_PLAY) || (state == CS_RECD) || (state == CS_GTDIG))
 			{
@@ -923,7 +932,7 @@ void process_event( void )
 			}
 			if(CallNdx == -1)
 			{
-				Log( TRC_GC, index, "CallIndex for CRN not found", 3 );
+				Log( TRC_GC, TRC_ERROR, index, "CallIndex for CRN not found" );
 			}
 			else
 			{
@@ -934,7 +943,7 @@ void process_event( void )
 			break;
 		case GCEV_RELEASECALL:
 			stUsed--;
-			LogGC( index, evttype, "", 0 );
+			LogGC( TRC_INFO, index, evttype, "" );
 			if(ChannelInfo[index].PState == PST_RELEASING)
 			{
 				ChannelInfo[index].PState = PST_IDLE;
@@ -943,7 +952,7 @@ void process_event( void )
 			//{
 				if(CallNdx == -1)
 				{
-					Log( TRC_GC, index, "CallIndex for CRN not found", 3 );
+					Log( TRC_GC, TRC_ERROR, index, "CallIndex for CRN not found" );
 				}
 				else
 				{
@@ -954,13 +963,13 @@ void process_event( void )
 					}
 					else
 					{
-						Log( TRC_GC, index, "got event at unexpected SState", 3 );
+						Log( TRC_GC, TRC_ERROR, index, "got event at unexpected SState" );
 					}
 				}
 			//}
 			break;
 		case GCEV_RESETLINEDEV:
-			LogGC( index, evttype, "", 0 );
+			LogGC( TRC_WARNING, index, evttype, "" );
 			for(i = 0; i < MAX_CALLS; i++)
 			{
 				ChannelInfo[index].Calls[i].crn = 0;
@@ -970,19 +979,19 @@ void process_event( void )
 			LogFunc( index, "gc_WaitCall()", ret );
 			break;
 		case GCEV_TASKFAIL:
-			LogGC( index, evttype, "", 0 );
+			LogGC( TRC_ERROR, index, evttype, "" );
 			ChannelInfo[index].blocked = 0;
 			ret = gc_ResetLineDev( ChannelInfo[index].hdLine, EV_ASYNC );
 			LogFunc( index, "gc_ResetLineDev()", ret );
 			break;
 		case GCEV_PROCEEDING:
-			LogGC( index, evttype, "", 0 );
+			LogGC( TRC_INFO, index, evttype, "" );
 			break;
 		case GCEV_ALERTING:
-			LogGC( index, evttype, "", 0 );
+			LogGC( TRC_INFO, index, evttype, "" );
 			break;
 		default:
-			LogGC( index, evttype, "Unsupported event", 2 );
+			LogGC( TRC_ERROR, index, evttype, "Unsupported event" );
 		}
 	}
 	else
@@ -996,10 +1005,10 @@ void process_event( void )
 		switch(evttype)
 		{
 		case TDX_PLAY:
-			LogDX( index, evttype, "", 0 );
+			LogDX( TRC_INFO, index, evttype, "" );
 			if(index == -1)
 			{
-				Log( TRC_CORE, -1, "Linedev not found", 3 );
+				Log( TRC_CORE, TRC_ERROR, -1, "Linedev not found" );
 			}
 			else
 			{
@@ -1030,30 +1039,30 @@ void process_event( void )
 			}
 			break;
 		case TDX_GETDIG:
-			LogDX( index, evttype, "", 0 );
+			LogDX( TRC_INFO, index, evttype, "" );
 			if(index == -1)
 			{
-				Log( TRC_CORE, -1, "Linedev not found", 3 );
+				Log( TRC_CORE, TRC_ERROR, -1, "Linedev not found" );
 			}
 			else
 			{
 				sprintf( str, "GetDigit return [%c]", ChannelInfo[index].digbuf.dg_value[0] );
-				Log( TRC_DX, index, str, 0 );
+				Log( TRC_DX, TRC_INFO, index, str );
 			}
 			break;
 		case TDX_CST:
-			LogDX( index, evttype, "", 0 );
+			LogDX( TRC_INFO, index, evttype, "" );
 			cstp = (DX_CST *)sr_getevtdatap();
 			switch(cstp->cst_event)
 			{
 			case DE_DIGITS:
 				sprintf( str, "Digit detected [%c]", (char)(cstp->cst_data) );
-				Log( TRC_DX, index, str, 0 );
+				Log( TRC_DX, TRC_INFO, index, str );
 				break;
 			}
 			break;
 		default:
-			LogDX( index, evttype, "Unsupported event", 2 );
+			LogDX( TRC_ERROR, index, evttype, "Unsupported event" );
 		}
 	}
 }
@@ -1149,6 +1158,7 @@ int GetIndexByVoice( int dev )
 //---------------------------------------------------------------------------------
 bool InitPlayFragment( int index, const char *filename )
 {
+	Log( TRC_CORE, TRC_INFO, index, "InitPlayFragment() : play '%s'", filename );
 	int ret;
 	if ((ChannelInfo[index].iott.io_fhandle = open( filename, O_RDONLY )) != -1)
 	{
@@ -1172,7 +1182,7 @@ bool InitPlayFragment( int index, const char *filename )
 	}
 	else
 	{
-		Log( TRC_DX, index, "Play Error: unable open file", 2 );
+		Log( TRC_DX, TRC_ERROR, index, "Play Error: unable open file" );
 		return false;
 	}
 }

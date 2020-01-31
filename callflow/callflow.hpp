@@ -12,6 +12,12 @@
 #define TRC_GC		2
 #define TRC_DX		4
 #define TRC_SETT	8
+
+#define TRC_DUMP		0
+#define TRC_INFO		1
+#define TRC_WARNING		2
+#define TRC_ERROR		3
+#define TRC_CRITICAL	4
 //---------------------------------------------------------------------------
 #define LOGSTRSIZE	256
 #define MAX_DEVNAME	64		// Maximum length of device name											*/
@@ -45,7 +51,7 @@
 #define PRM_MODE			10
 #define PRM_FRAGMENT		11
 //---------------------------------------------------------------------------
-#define DEFAULT_ERRLOG_FILTER	1
+#define DEFAULT_ERRLOG_FILTER	TRC_ERROR
 #define DEFAULT_CHANNELSCNT		2
 #define DEFAULT_FIRSTCHANNEL	0
 #define DEFAULT_TRACEMASK		255
@@ -152,12 +158,11 @@ int stCallCntPerInterval = 0;
 
 T_CHAN_INFO ChannelInfo[MAXCHANS + 1];
 
-void LogWrite( const char * );
-void ErrorLogWrite( char * );
-void Log( int Src, int Channel, const char *msg, int Svrt );
-void LogGC( int Channel, int event, const char *, int Svrt );
-void LogDX( int Channel, int event, const char *, int Svrt );
-void LogFunc( int Channel, const char *FuncName, int ret );
+void LogWrite( const char *, int Svrt );
+void Log( int Src, int Svrt, int Line, const char *format, ... );
+void LogGC( int Svrt, int Line, int event, const char * );
+void LogDX( int Svrt, int Line, int event, const char * );
+void LogFunc( int Line, const char *FuncName, int ret );
 void init_srl_mode();
 static void intr_hdlr( int receivedSignal );
 void LoadSettings();

@@ -387,6 +387,17 @@ void LogWrite( const char *msg, int Svrt )
 	}
 }
 //---------------------------------------------------------------------------
+void LogGC_INFO( int index, GC_INFO *a_Info )
+{
+	Log( TRC_GC, TRC_DUMP, index, "LogGC_INFO() : gcValue = 0x%x\n", a_Info->gcValue );
+	Log( TRC_GC, TRC_DUMP, index, "LogGC_INFO() : gcMsg = %s\n", a_Info->gcMsg );
+	Log( TRC_GC, TRC_DUMP, index, "LogGC_INFO() : ccLibId = %d\n", a_Info->ccLibId );
+	Log( TRC_GC, TRC_DUMP, index, "LogGC_INFO() : ccLibName = %s\n", a_Info->ccLibName );
+	Log( TRC_GC, TRC_DUMP, index, "LogGC_INFO() : ccValue = 0x%x\n", a_Info->ccValue );
+	Log( TRC_GC, TRC_DUMP, index, "LogGC_INFO() : ccMsg = %s\n", a_Info->ccMsg );
+	Log( TRC_GC, TRC_DUMP, index, "LogGC_INFO() : additionalInfo = %s\n", a_Info->additionalInfo );
+}
+//---------------------------------------------------------------------------
 int FindParam( char *ParamName )
 {
 	int paramCount = sizeof(Parameters)/sizeof(T_ParamDef);
@@ -981,6 +992,12 @@ void process_event( void )
 		case GCEV_TASKFAIL:
 			LogGC( TRC_ERROR, index, evttype, "" );
 			ChannelInfo[index].blocked = 0;
+			ret = gc_ResultInfo( &metaevent, &gc_error_info );
+			LogFunc( index, "gc_ResultInfo()", ret );
+			if(ret == GC_SUCCESS)
+			{
+				LogGC_INFO( index, &gc_error_info );
+			}
 			ret = gc_ResetLineDev( ChannelInfo[index].hdLine, EV_ASYNC );
 			LogFunc( index, "gc_ResetLineDev()", ret );
 			break;

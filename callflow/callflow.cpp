@@ -11,6 +11,7 @@
 /* OS Socket API Headers */
 #ifdef _WIN32
 #include <winsock2.h>
+#include <io.h>
 #else
 #include <unistd.h>
 #include <netdb.h>
@@ -23,6 +24,13 @@
 
 #include "callflow.hpp"
 
+#ifdef WIN32
+#pragma comment(lib, "libsrlmt.lib")
+#pragma comment(lib, "libgc.lib")
+#pragma comment(lib, "LIBDXXMT.lib")
+#pragma comment(lib, "ws2_32.lib")
+#pragma warning(disable : 4996)
+#endif
 
 static int		interrupted = NO;	/* Flag for user interrupted signals		 */
 time_t			start_time;		// To note down the start time

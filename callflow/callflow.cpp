@@ -442,6 +442,8 @@ void LoadSettings()
 		if(fgets( str, MAXPARAMSIZE, f ) == NULL) break;
 		sl = strlen( str );
 		if(sl < 3) continue;
+		// Skip comments
+		if((str[0]==';')||(str[0]=='#')) continue;
 		n = 0;
 		np = 0;
 		while((str[n] != '=') && (n < sl))

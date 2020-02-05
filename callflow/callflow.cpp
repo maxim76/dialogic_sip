@@ -816,36 +816,58 @@ void process_event( void )
 
 			sprintf( str, "CgPN:[%s] CdPN:[%s] RdPN:[%s] (reason=%d)", ChannelInfo[index].CgPN, ChannelInfo[index].CdPN, ChannelInfo[index].RdPN, ChannelInfo[index].reasonCode );
 			LogGC( TRC_INFO, index, evttype, str );
-			if(SendCallAck > 0)
+			int reasonCodeDialogic;
+			switch(Mode)
 			{
-				GC_CALLACK_BLK callack; /* type & number of digits to collect */
-				memset( &callack, 0, sizeof( callack ) );
-				if(gc_CallAck( TempCRN, &callack, EV_ASYNC ) != GC_SUCCESS)
+			case 1:		// Missed call
+				switch(reasonCodeIP)
 				{
-					gc_ErrorInfo( &gc_error_info );
-					sprintf( str, "Error gc_CallAck() %s", gc_error_info.ccMsg );
-					Log( TRC_CORE, TRC_ERROR, index, str );
+				case 480:
+					reasonCodeDialogic = IPEC_SIPReasonStatus480TemporarilyUnavailable;
+					Log(TRC_CORE, TRC_INFO, index, "MissedCall: dropping with reason 480TemporarilyUnavailable");
+					break;
+				case 486:
+					reasonCodeDialogic = IPEC_SIPReasonStatus486BusyHere;
+					Log( TRC_CORE, TRC_INFO, index, "MissedCall: dropping with reason 486BusyHere" );
+					break;
+				default:
+					Log( TRC_CORE, TRC_INFO, index, "MissedCall: no redirection reason. Dropping with reason NORMAL_CLEARING" );
+					reasonCodeDialogic = GC_NORMAL_CLEARING;
+				}
+				InitDisconnect(index, reasonCodeDialogic );
+				break;
+			default:	// other modes, that requires connection
+				if(SendCallAck > 0)
+				{
+					GC_CALLACK_BLK callack; /* type & number of digits to collect */
+					memset( &callack, 0, sizeof( callack ) );
+					if(gc_CallAck( TempCRN, &callack, EV_ASYNC ) != GC_SUCCESS)
+					{
+						gc_ErrorInfo( &gc_error_info );
+						sprintf( str, "Error gc_CallAck() %s", gc_error_info.ccMsg );
+						Log( TRC_CORE, TRC_ERROR, index, str );
+					}
+					else
+					{
+						LogFunc( index, "gc_CallAck", 0 );
+					}
 				}
 				else
 				{
-					LogFunc( index, "gc_CallAck", 0 );
+					if(SendACM > 0)
+					{
+						ret = gc_AcceptCall( TempCRN, 0, EV_ASYNC );
+						LogFunc( index, "gc_AcceptCall()", ret );
+					}
+					else
+					{
+						ret = gc_AnswerCall( TempCRN, 0, EV_ASYNC );
+						LogFunc( index, "gc_AnswerCall()", ret );
+					}
 				}
 			}
-			else
-			{
-				if(SendACM > 0)
-				{
-					ret = gc_AcceptCall( TempCRN, 0, EV_ASYNC );
-					LogFunc( index, "gc_AcceptCall()", ret );
-				}
-				else
-				{
-					ret = gc_AnswerCall( TempCRN, 0, EV_ASYNC );
-					LogFunc( index, "gc_AnswerCall()", ret );
-				}
-			}
-			break;
 		}
+		break;
 		case GCEV_CALLPROC:
 			LogGC( TRC_INFO, index, evttype, "" );
 			if(SendACM > 0)
@@ -1099,7 +1121,7 @@ int GetSIPRdPN( GC_PARM_BLK	*paramblkp, std::string & RdPN, std::string & reason
 	std::unordered_map<std::string, int> sipReasons;
 	sipReasons = {
 		{"unavailable", 480},
-		{"busy", 486},
+		{"user-busy", 486},
 	};
 	bool result = false;
 	reason = "";
@@ -1135,7 +1157,7 @@ int GetSIPRdPN( GC_PARM_BLK	*paramblkp, std::string & RdPN, std::string & reason
 			{
 				reason = diversionURI.substr( beginReason + reasonStartTag.size(), endReason - beginReason - reasonStartTag.size() );
 				// Convert string reason into numeric
-				auto iter = sipReasons.find( "reason" );
+				auto iter = sipReasons.find( reason );
 				if(iter != sipReasons.end())
 				{
 					*reasonCode = iter->second;
@@ -1214,11 +1236,11 @@ bool InitPlayFragment( int index, const char *filename )
 	}
 }
 //---------------------------------------------------------------------------
-void InitDisconnect( int N )
+void InitDisconnect( int N, int reason )
 {
 	int ret;
 	ChannelInfo[N].PState = PST_RELEASING;
-	ret = gc_DropCall( ChannelInfo[N].Calls[0].crn, GC_NORMAL_CLEARING, EV_ASYNC );
+	ret = gc_DropCall( ChannelInfo[N].Calls[0].crn, reason, EV_ASYNC );
 	LogFunc( N, "gc_DropCall()", ret );
 }
 //---------------------------------------------------------------------------------

@@ -177,6 +177,6 @@ int  GetCallNdx( int LineNo, CRN crn );
 int  GetIndexByVoice( int );
 int  FindParam( char *ParamName );
 bool InitPlayFragment( int index, const char *filename );
-void InitDisconnect( int index );
+void InitDisconnect( int index, int reason = GC_NORMAL_CLEARING );
 void InitNewCall( int index );
 void writeStatistics();

@@ -1,0 +1,5 @@
+CALL SERVER
+-----------
+Implements integration with Dialogic HMP and callflow processing.
+Provides CCAF/SSP functions.
+SCP/SDP functions are planned to be in external applications.

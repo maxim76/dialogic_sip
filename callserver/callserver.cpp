@@ -12,11 +12,13 @@
 #ifdef _WIN32
 #include <winsock2.h>
 #include <io.h>
+#include <direct.h>
 #else
 #include <unistd.h>
 #include <netdb.h>
 #include <sys/socket.h>
 #include <arpa/inet.h>
+#include <sys/stat.h>
 #endif
 
 #include <algorithm>
@@ -162,12 +164,26 @@ static void intr_hdlr( int receivedSignal )
 //---------------------------------------------------------------------------
 void InitLogFile()
 {
+	const char * logDir = "./Logs/";
+	// Create directory for log files if it does not exist
+	int res;
+#ifdef _WIN32
+	res = _mkdir( logDir );
+#else
+	res = mkdir( logDir, 0733 );
+#endif
+	if ((res != 0) && (errno != EEXIST))
+	{
+		printf( "Cannot create log dir. Error: %d (%s)\n", errno, strerror(errno) );
+		exit( 1 );
+	}
+
 	char sFN[64];
 	struct tm *tblock;
 	tblock = localtime( &start_time );
 
 	// Full log file
-	sprintf( sFN, "./Logs/ivrserv_%04d%02d%02d_%02d%02d%02d.txt", tblock->tm_year + 1900, tblock->tm_mon, tblock->tm_mday, tblock->tm_hour, tblock->tm_min, tblock->tm_sec );
+	sprintf( sFN, "%s/ivrserv_%04d%02d%02d_%02d%02d%02d.txt", logDir, tblock->tm_year + 1900, tblock->tm_mon, tblock->tm_mday, tblock->tm_hour, tblock->tm_min, tblock->tm_sec );
 	if((fLog = fopen( sFN, "w" )) == NULL)
 	{
 		printf( "Cannot create log file. Termination.\n" );
@@ -175,7 +191,7 @@ void InitLogFile()
 	}
 
 	// Errors only
-	sprintf( sFN, "./Logs/errors_%04d%02d%02d_%02d%02d%02d.txt", tblock->tm_year + 1900, tblock->tm_mon, tblock->tm_mday, tblock->tm_hour, tblock->tm_min, tblock->tm_sec );
+	sprintf( sFN, "%s/errors_%04d%02d%02d_%02d%02d%02d.txt", logDir, tblock->tm_year + 1900, tblock->tm_mon, tblock->tm_mday, tblock->tm_hour, tblock->tm_min, tblock->tm_sec );
 	if((fErrorLog = fopen( sFN, "w" )) == NULL)
 	{
 		printf( "Cannot create error log file. Termination.\n" );
@@ -183,7 +199,7 @@ void InitLogFile()
 	}
 
 	// Statistics
-	sprintf( sFN, "./Logs/stat_%04d%02d%02d_%02d%02d%02d.txt", tblock->tm_year + 1900, tblock->tm_mon, tblock->tm_mday, tblock->tm_hour, tblock->tm_min, tblock->tm_sec );
+	sprintf( sFN, "%s/stat_%04d%02d%02d_%02d%02d%02d.txt", logDir, tblock->tm_year + 1900, tblock->tm_mon, tblock->tm_mday, tblock->tm_hour, tblock->tm_min, tblock->tm_sec );
 	if((fStat = fopen( sFN, "w" )) == NULL)
 	{
 		printf( "Cannot create statistics file. Termination.\n" );

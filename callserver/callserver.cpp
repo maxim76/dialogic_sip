@@ -25,6 +25,8 @@
 #include <unordered_map>
 
 #include "callserver.hpp"
+#include "udp_request.hpp"
+
 
 #ifdef WIN32
 #pragma comment(lib, "libsrlmt.lib")
@@ -68,6 +70,7 @@ int main( void )
 
 	InitDialogicLibs();
 	InitChannels();
+	InitNetwork();
 
 	// Forever loop where the main work is done - wait for an event or user requested exit
 	Log( TRC_CORE, TRC_INFO, -1, "Entering Working State" );
@@ -440,6 +443,8 @@ void LoadSettings()
 	SendCallAck = DEFAULT_SENDCALLACK;
 	SendACM = DEFAULT_SENDACM;
 	strncpy( defaultFragment, DEFAULT_FRAGMENT, MAXPARAMSIZE );
+	strncpy( scpIP, DEFAULT_SCPIP, MAXPARAMSIZE );
+	scpPort = DEFAULT_SCPPORT;
 
 	char logstr[LOGSTRSIZE];
 	char str[MAXPARAMSIZE];
@@ -649,6 +654,32 @@ void LoadSettings()
 					Log( TRC_SETT, TRC_ERROR, -1, logstr );
 				}
 				break;
+			case PRM_SCPIP:
+				if(sscanf( ParamValue, "%s", scpIP ) == 1)
+				{
+					sprintf( logstr, "Set SCP IP = '%s'", scpIP );
+					Log( TRC_SETT, TRC_DUMP, -1, logstr );
+				}
+				else
+				{
+					strncpy( scpIP, DEFAULT_SCPIP, MAXPARAMSIZE );
+					sprintf( logstr, "Wrong parameter set: %s=%s", ParamName, ParamValue );
+					Log( TRC_SETT, TRC_ERROR, -1, logstr );
+				}
+				break;
+			case PRM_SCPPORT:
+				if(sscanf( ParamValue, "%d", &scpPort ) == 1)
+				{
+					sprintf( logstr, "Set SCP Port = %d", scpPort );
+					Log( TRC_SETT, TRC_DUMP, -1, logstr );
+				}
+				else
+				{
+					scpPort = DEFAULT_SCPPORT;
+					sprintf( logstr, "Wrong parameter set: %s=%s", ParamName, ParamValue );
+					Log( TRC_SETT, TRC_ERROR, -1, logstr );
+				}
+				break;
 			default:
 				sprintf( logstr, "Unimplemented initialization: %s=%s", ParamName, ParamValue );
 				Log( TRC_SETT, TRC_ERROR, -1, logstr );
@@ -710,6 +741,26 @@ void InitChannels()
 		{
 			ChannelInfo[i].iott.io_fhandle = -1;
 		}
+	}
+}
+//---------------------------------------------------------------------------
+void InitNetwork()
+{
+#ifdef WIN32
+	// Initialize Windows socket library
+	WSADATA wsaData;
+	if(WSAStartup( MAKEWORD( 1, 1 ), &wsaData ) != 0)
+	{
+		fprintf( stderr, "WSAStartup() failed\n" );
+		exit(-1);
+	}
+#endif
+
+	UDPRequest request( scpIP, scpPort );
+	if(!request.ready())
+	{
+		fprintf( stderr, "UDPRequest initialization failed\n" );
+		exit( -1 );
 	}
 }
 /****************************************************************

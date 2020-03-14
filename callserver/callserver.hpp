@@ -50,6 +50,8 @@
 #define PRM_CGPN			9
 #define PRM_MODE			10
 #define PRM_FRAGMENT		11
+#define PRM_SCPIP			12
+#define PRM_SCPPORT			13
 //---------------------------------------------------------------------------
 #define DEFAULT_ERRLOG_FILTER	TRC_ERROR
 #define DEFAULT_CHANNELSCNT		2
@@ -60,6 +62,8 @@
 #define DEFAULT_SENDACM			0
 #define DEFAULT_MODE			0
 #define DEFAULT_FRAGMENT		"hello.wav"
+#define DEFAULT_SCPIP			"127.0.0.1"
+#define DEFAULT_SCPPORT			10000
 //---------------------------------------------------------------------------
 struct T_ParamDef {
 	int ID;
@@ -78,6 +82,8 @@ const struct T_ParamDef Parameters[] = {
 		{PRM_CGPN,       "CgPN" },
 		{PRM_MODE,			"Mode"},
 		{ PRM_FRAGMENT,   "Fragment" },
+		{PRM_SCPIP,			"ScpIP"},
+		{PRM_SCPPORT,		"ScpPort"}
 };
 //---------------------------------------------------------------------------
 #define MAXGCEVENT	0x100
@@ -148,6 +154,8 @@ char CdPN[MAXPARAMSIZE];
 char CgPN[MAXPARAMSIZE];
 char defaultFragment[MAXPARAMSIZE];
 int Mode;
+char scpIP[MAXPARAMSIZE];
+int scpPort;
 
 
 // Statistics
@@ -168,6 +176,7 @@ static void intr_hdlr( int receivedSignal );
 void LoadSettings();
 void InitLogFile();
 void InitDialogicLibs();
+void InitNetwork();
 void Deinit();
 void process_event( void );
 void InitChannels();

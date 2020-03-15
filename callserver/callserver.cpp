@@ -26,6 +26,7 @@
 
 #include "callserver.hpp"
 #include "udp_request.hpp"
+#include "ssp_scp_interface.hpp"
 
 
 #ifdef WIN32
@@ -41,20 +42,15 @@ time_t			start_time;		// To note down the start time
 FILE *fLog;
 FILE *fErrorLog;
 FILE *fStat;
+UDPRequest *pUDPRequest;
 
 int main( void )
 {
-	int ret;
-	int i;
-	int fCanClose = 0;
-	char str[LOGSTRSIZE];
-
 	time( &start_time );
 	InitLogFile();
 	Log( TRC_CORE, TRC_INFO, -1, "********** IVR server started ***********" );
 
-	// Give control to Event Handler
-
+	// Set Ctrl+C interruption handler for clean app shutdown
 #ifdef _WIN32
 	signal( SIGINT, (void( __cdecl* )(int)) intr_hdlr );
 	signal( SIGTERM, (void( __cdecl* )(int)) intr_hdlr );
@@ -67,51 +63,19 @@ int main( void )
 
 	init_srl_mode();									// set SRL mode to ASYNC, polled
 	LoadSettings();
-
 	InitDialogicLibs();
 	InitChannels();
 	InitNetwork();
 
 	// Forever loop where the main work is done - wait for an event or user requested exit
 	Log( TRC_CORE, TRC_INFO, -1, "Entering Working State" );
-	for(;;)
+	while(true)
 	{
-		ret = sr_waitevt( 500 );					// 1/2 second
-		if(ret != -1)
-		{
-			process_event();
-		}
-		if(interrupted == YES)	// flag set in intr_hdlr() 
-		{
-			fCanClose = 1;
-			for(i = 0; i < TotalChannels; i++)
-			{
-				switch(ChannelInfo[i].PState)
-				{
-				case PST_NULL:
-				case PST_IDLE:
-					ret = gc_Close( ChannelInfo[i].hdLine );
-					LogFunc( i, "gc_Close()", ret );
-					ChannelInfo[i].PState = PST_SHUTDOWN;
-				}
-
-				if(ChannelInfo[i].PState != PST_SHUTDOWN)
-				{
-					sprintf( str, "Waiting for channel [%d], state %d", i, ChannelInfo[i].PState );
-					Log( TRC_CORE, TRC_DUMP, -1, str );
-					fCanClose = 0;
-				}
-			}
-			if(fCanClose)
-			{
-				Log( TRC_CORE, TRC_WARNING, -1, "Application Stopped" );
-				fclose( fLog );
-				fclose( fErrorLog );
-				fclose( fStat );
-				return 0;
-			}
-		}
+		processGlobalCall();
+		processNetwork();
+		if(checkAppExitCondition()) break;
 	}
+	Log( TRC_CORE, TRC_WARNING, -1, "Application Stopped" );
 }
 
 /****************************************************************
@@ -756,11 +720,74 @@ void InitNetwork()
 	}
 #endif
 
-	UDPRequest request( scpIP, scpPort );
-	if(!request.ready())
+	//UDPRequest request( scpIP, scpPort );
+	pUDPRequest = new UDPRequest( scpIP, scpPort );
+	//if(!request.ready())
+	if(!pUDPRequest->ready())
 	{
 		fprintf( stderr, "UDPRequest initialization failed\n" );
 		exit( -1 );
+	}
+}
+//---------------------------------------------------------------------------
+void processNetwork()
+{
+	pUDPRequest->update();
+	bool isTimeout;
+	unsigned int req_id;
+	char data[MAX_DATAGRAM_SIZE];
+	size_t len;
+
+	while(pUDPRequest->recv( &req_id, &isTimeout, data, &len ))
+	{
+		Log( TRC_CORE, TRC_DUMP, req_id, "Recv from SCP" );
+		InitDisconnect( req_id );
+	}
+}
+//---------------------------------------------------------------------------
+void processGlobalCall()
+{
+	int ret = sr_waitevt( 100 );
+	if(ret != -1)
+	{
+		process_event();
+	}
+}
+//---------------------------------------------------------------------------
+bool checkAppExitCondition()
+{
+	char str[LOGSTRSIZE];
+	if(interrupted != YES) return false; // flag set in intr_hdlr()
+	bool fCanClose = 1;
+	int ret;
+	for(int i = 0; i < TotalChannels; i++)
+	{
+		switch(ChannelInfo[i].PState)
+		{
+		case PST_NULL:
+		case PST_IDLE:
+			ret = gc_Close( ChannelInfo[i].hdLine );
+			LogFunc( i, "gc_Close()", ret );
+			ChannelInfo[i].PState = PST_SHUTDOWN;
+		}
+
+		if(ChannelInfo[i].PState != PST_SHUTDOWN)
+		{
+			sprintf( str, "Waiting for channel [%d], state %d", i, ChannelInfo[i].PState );
+			Log( TRC_CORE, TRC_DUMP, -1, str );
+			fCanClose = 0;
+		}
+	}
+	if(fCanClose)
+	{
+		fclose( fLog );
+		fclose( fErrorLog );
+		fclose( fStat );
+		return true;
+	}
+	else
+	{
+		return false;
 	}
 }
 /****************************************************************
@@ -769,7 +796,7 @@ void InitNetwork()
 *		RETURNS: NA
 *	  CAUTIONS: none
 ****************************************************************/
-void process_event( void )
+void process_event()
 {
 	METAEVENT	metaevent;
 	char		str[LOGSTRSIZE];
@@ -903,6 +930,15 @@ void process_event( void )
 				}
 				InitDisconnect(index, reasonCodeDialogic );
 				break;
+			case 2:		// SSP mode. Send informing to SCP
+				ssp_scp::Offered messageOffered;
+				messageOffered.sspEvent.eventCode = ssp_scp::SSPEventCodes::OFFERED;
+				strncpy( messageOffered.CgPN, ChannelInfo[index].CgPN, MAX_NUMSIZE );
+				strncpy( messageOffered.CdPN, ChannelInfo[index].CdPN, MAX_NUMSIZE );
+				strncpy( messageOffered.RdPN, ChannelInfo[index].RdPN, MAX_NUMSIZE );
+				messageOffered.redirectionReason = reasonCodeIP;
+				pUDPRequest->send( index, (char *)&messageOffered, sizeof( messageOffered ));
+				break;
 			default:	// other modes, that requires connection
 				if(SendCallAck > 0)
 				{
@@ -974,6 +1010,8 @@ void process_event( void )
 					break;
 				default:
 					Log( TRC_CORE, TRC_ERROR, index, "Misconfiguration: unsupported Mode" );
+					ret = gc_DropCall( TempCRN, GC_NORMAL_CLEARING, EV_ASYNC );
+					LogFunc( index, "gc_DropCall()", ret );
 				}
 			}
 			else

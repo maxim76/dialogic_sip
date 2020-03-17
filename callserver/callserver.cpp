@@ -937,7 +937,12 @@ void process_event()
 				strncpy( messageOffered.CdPN, ChannelInfo[index].CdPN, MAX_NUMSIZE );
 				strncpy( messageOffered.RdPN, ChannelInfo[index].RdPN, MAX_NUMSIZE );
 				messageOffered.redirectionReason = reasonCodeIP;
-				pUDPRequest->send( index, (char *)&messageOffered, sizeof( messageOffered ));
+
+				char buffer[MAX_DATAGRAM_SIZE];
+				size_t filledSize;
+				messageOffered.pack( buffer, MAX_DATAGRAM_SIZE, &filledSize );
+				pUDPRequest->send( index, buffer, filledSize );
+				//pUDPRequest->send( index, (char *)&messageOffered, sizeof( messageOffered ));
 				break;
 			default:	// other modes, that requires connection
 				if(SendCallAck > 0)

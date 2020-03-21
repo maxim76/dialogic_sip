@@ -6,20 +6,6 @@ tick = 0.1
 scpHost = "192.168.1.107"
 scpPort = 9999
 
-# ------------------------------------------------------------------------------
-# RabbitMQ section
-# ------------------------------------------------------------------------------
-# Hostname/IP-address of the server with rabbitmq-server
-mqServer = 'c7'
-# Queue name where requests are reveived
-mqRequestQueueName = 'MCRequests'
-# Queue name where responses  are sent
-mqResponseQueueName = 'MCResponses'
-# Username that will be used for opening connection to message queue
-mqUsername = 'guest'
-# Password that will be used for opening connection to message queue
-mqPassword = 'guest'
-
 
 # ------------------------------------------------------------------------------
 # Logging

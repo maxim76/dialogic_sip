@@ -1,4 +1,5 @@
 import socketserver
+import struct
 from functools import partial
 from logger import getLogger
 from plugin import Plugin
@@ -9,50 +10,60 @@ class UDPServer(Plugin):
 
     class SCPRequestHandler(socketserver.BaseRequestHandler):
 
-        def __init__(self, callback):
+        def __init__(self, callback, *args, **kwargs):
             self.callback = callback
+            self.requests = dict()
+            socketserver.BaseRequestHandler.__init__(self, *args, **kwargs)
 
         def handle(self):
             data = self.request[0]
             socket = self.request[1]
-            print( "SCPRequestHandler::handle() : Recv [" + ''.join( ["%02X " % ch for ch in data] ) + "]" )
-            self.callback()
+            logger.debug( "Recv [" + ''.join( ["%02X " % ch for ch in data] ) + "]" )
+            if len(data) < 5:
+                logger.error("Malformed request")
+                return
+            channel = struct.unpack_from('I', data)[0]
+            self.requests[channel] = (socket, self.client_address)
+            self.callback(self, channel, data[4:])
+
+        def sendResponse(self, channel, data):
+            request = self.requests.get(channel, None)
+            if request is None:
+                logger.error('sendResponse : no request on channel %d' % channel)
+                return
+
+            buffer = bytearray()
+            buffer += struct.pack( 'I', channel )
+            buffer += data
+            socket, address = request[0], request[1]
+            socket.sendto(buffer, address)
+            logger.debug( "Send [" + ''.join( ["%02X " % ch for ch in buffer] ) + "]" )
+
 
     def __init__(self, host, port, callback):
-        #self.callback = callback
         handler = partial(self.SCPRequestHandler, callback)
-        #self.server = socketserver.UDPServer((host, port), self.SCPRequestHandler)
         self.server = socketserver.UDPServer((host, port), handler)
+        logger.info('UDPServer : started on %s port %s' % (host, port))
 
     def update(self):
         self.server.handle_request()
 
-class SCPRequestHandler(socketserver.BaseRequestHandler):
-
-    def handle(self):
-        data = self.request[0]
-        socket = self.request[1]
-        print( "SCPRequestHandler::handle() : Recv [" + ''.join( ["%02X " % ch for ch in data] ) + "]" )
-        if len(data)<5:
-            print("Malformed request")
-            return
-
-        #socket.sendto(data.upper(), self.client_address)
-
 
 # Unittest
 if __name__ == "__main__":
+
+    logger = getLogger("UDPServer.Unittest")
+    logger.info("%s is started in unittest mode" % __file__.split('/')[-1])
+    logger.info("All incoming messages will be echoed back")
+
     unittestHost = '192.168.1.107'
     unittestPort = 9999
     server_address = (unittestHost, unittestPort)
-    print('Starting UDP server on %s port %s' % server_address)
 
-    '''
-    with socketserver.UDPServer(server_address, SCPRequestHandler) as server:
-        server.serve_forever()
-    '''
-    def callback():
-        print("Request received")
+    def callback(self, channel, data):
+        logger.info("callback() : Request received at channel %d" % channel)
+        self.sendResponse(channel, data)
+
 
     udpServer = UDPServer(unittestHost, unittestPort, callback)
     import time

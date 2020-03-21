@@ -33,6 +33,8 @@ class EvOffered:
         paramPtr += paramLen + 1
         self.reason = struct.unpack('H', data[paramPtr:paramPtr+2])[0]
 
+        return True
+
     @staticmethod
     def pack(CgPN, CdPN, RdPN, reason):
         data = bytearray()

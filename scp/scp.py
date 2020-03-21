@@ -1,10 +1,12 @@
 import time
+import scp_interface
 from logger import getLogger
 from message_queue import MQListener, MQSender
 from plugin import Plugin
 #from sdp import SDP
 from sdp_test import SDP
 from scp_interface import EvOffered
+from udp_server import UDPServer
 
 logger = getLogger("SCP")
 
@@ -44,9 +46,39 @@ class SCP:
         # Create plugin instances and add them to manager so that they get control periodically
         # Note: plugins should be derived from class Plugin and implement update() function
         self.pluginManager = self.PluginManager()
-        self.mqListener = MQListener(config.mqServer, config.mqUsername, config.mqPassword, config.mqRequestQueueName, self.onRequestReceived)
-        self.pluginManager.add(self.mqListener)
+        self.udpServer = UDPServer(config.scpHost, config.scpPort, self.onRequestReceived)
+        self.pluginManager.add(self.udpServer)
 
+
+    def onRequestReceived(self, handler, channel, data):
+        """
+        Callback that is invoked when new request come
+
+        @param handler  :   instance of SCPRequestHandler, that invoked this callback
+        @param channel  :   IVR channel number where event happened
+        @data           :   raw content of the request
+        """
+        logger.info("onRequestReceived() :")
+        handler.sendResponse(channel, data)
+
+        if len(data) == 0:
+            logger.error("Malformed request")
+            return
+
+        # get event type and call corresponding handler
+        if data[0] == scp_interface.CallServerEvents.GCEV_OFFERED:
+            event = scp_interface.EvOffered()
+            if not event.unpack(data[1:]):
+                logger.error("onRequestReceived : Malformed request")
+                return
+            else:
+                logger.debug("onRequestReceived : GCEV_OFFERED")
+                logger.debug(event)
+                self.onOffered(event)
+
+
+
+    '''
     def onRequestReceived(self, payload, ackInfo):
         """
         Callback that is invoked when new request come
@@ -60,7 +92,7 @@ class SCP:
         logger.info("onRequestReceived() : [%s]" % evOffered)
 
         self.onOffered(evOffered.CgPN, evOffered.RdPN, evOffered.reason)
-        '''
+        """
         message = json.loads(payload)
         logger.info("onRequestReceived() : Request Received. Content: %r" % message)
         downloadURL = message.get('replay_download_url', None)
@@ -75,9 +107,14 @@ class SCP:
             # Start replay file downloading
             session.attemptCount = 0
             ActionHandler.processEvent(Events.ONREQUESTRECEIVED, session)
-        '''
+        """
+    '''
 
-    def onOffered(self, cgPN, rdPN, reason):
+    def onOffered(self, event):
+        cgPN = event.CgPN
+        cdPN = event.CdPN
+        rdPN = event.RdPN
+        reason = event.reason
         logger.debug("onOffered()")
         # Check service
         result = self.sdp.checkService(rdPN, self.serviceKey)

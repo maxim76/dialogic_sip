@@ -2,7 +2,7 @@ import datetime
 import time
 import scp_interface
 from logger import getLogger
-from plugin import Plugin
+from plugin_manager import PluginManager
 from scp_interface import EvOffered
 from udp_server import UDPServer
 
@@ -31,39 +31,13 @@ class SCP:
             logger.debug("Session %s is destroying" % self.sessionID)
     '''
 
-    # TODO: Move PluginManager to separate module
-    class PluginManager:
-        """
-        Class keeps a list of separate plugins and gives them CPU time for executing
-        """
-        def __init__(self):
-            """
-            Constructor, initiate empty plugin list
-            """
-            self.plugins = []
-
-        def add(self, plugin):
-            """
-            Adds plugin to the list of plugins that are executed
-            """
-            assert isinstance(plugin, Plugin)
-            self.plugins.append(plugin)
-
-        def processPlugins(self):
-            """
-            Gives CPU time to plugins to execute their part of work.
-            Work that are being done in every plugin by single call to plugin's update() should be short enough in order not to block the main thread
-            """
-            for plugin in self.plugins:
-                plugin.update()
-
     def __init__(self, config):
         self.terminated = False     # Flag used to stop the service
         self.config = config
 
         # Create plugin instances and add them to manager so that they get control periodically
         # Note: plugins should be derived from class Plugin and implement update() function
-        self.pluginManager = self.PluginManager()
+        self.pluginManager = PluginManager()
         self.udpServer = UDPServer(config.scpHost, config.scpPort, self.onRequestReceived)
         self.pluginManager.add(self.udpServer)
 

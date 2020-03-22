@@ -53,7 +53,6 @@ class SCP:
         @data           :   raw content of the request
         """
         logger.info("onRequestReceived() :")
-        handler.sendResponse(channel, data)
 
         if len(data) == 0:
             logger.error("Malformed request")
@@ -73,10 +72,13 @@ class SCP:
                 session = self.Session()
                 self.sessions.add(session)
                 '''
-                self.onOffered(event)
+                self.onOffered(channel, event, handler)
+        else:
+            logger.error("onRequestReceived : Unhandled event code %d" % data[0])
+            handler.sendResponse(channel, data)
 
 
-    def onOffered(self, event):
+    def onOffered(self, channel, event, handler):
         logger.debug("SCP::onOffered() : implement me")
         
     def serve_forever(self):

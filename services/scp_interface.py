@@ -7,6 +7,8 @@ class CallServerEvents:
     GCEV_DISCONNECTED = 3
     GCEV_DROPCALL = 4
 
+class CallServerCommands:
+    CMD_DROP = 0
 
 class EvOffered:
     def __init__(self):
@@ -50,6 +52,17 @@ class EvOffered:
     def __repr__(self):
         S = 'CgPN : %s   CdPN : %s    RdPN : %s    reason : %d' % (self.CgPN, self.CdPN, self.RdPN, self.reason)
         return S
+
+class CallServerCommand:
+
+    CMD_DROP = 0
+
+    @staticmethod
+    def dropCall(reason):
+        data = bytearray()
+        data += struct.pack('B', CallServerCommand.CMD_DROP)
+        data += struct.pack('H', reason)
+        return data
 
 
 # Unittest

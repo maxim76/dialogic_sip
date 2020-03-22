@@ -4,6 +4,7 @@ from scp import SCP
 from logger import getLogger
 #from services.sdp import SDP
 from sdp_test import SDP
+from scp_interface import CallServerCommand
 
 logger = getLogger("MissedCall")
 
@@ -16,11 +17,16 @@ class MissedCall(SCP):
         self.needOnlyOne = config.needOnlyOne
         self.sdp = SDP(dbconfig.username, dbconfig.password, dbconfig.database)
 
-    def onOffered(self, event):
+    def onOffered(self, channel, event, handler):
         cgPN = event.CgPN
         rdPN = event.RdPN
         reason = event.reason
         logger.debug("onOffered()")
+
+        # send drop call to callserver
+        response = CallServerCommand.dropCall(reason)
+        handler.sendResponse(channel, response)
+
         # Check service
         result = self.sdp.checkService(rdPN, self.serviceKey)
         if result[0] == 0:

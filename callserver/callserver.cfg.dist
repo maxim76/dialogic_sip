@@ -1,0 +1,12 @@
+FirstChannel=0
+ChannelsCount=1
+TraceMask=255
+SeverityFilter=0
+SendCallAck=0
+SendACM=0
+LocalIP=127.0.0.1
+ScpIP=127.0.0.1
+ScpPort=9999
+;Modes: 0 - Autoresponder  1 - SSP
+Mode=0
+Fragment=ussr.wav

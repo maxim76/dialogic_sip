@@ -36,6 +36,8 @@
 #define MAXCHANS	2000  // Potential maximum of configured channels
 #define MAX_CALLS       2
 //---------------------------------------------------------------------------
+#define CONFIG_FILE		"callserver.cfg"
+//---------------------------------------------------------------------------
 #define MAXPARAMSIZE    128
 
 #define PRM_CHANNELSCNT		0

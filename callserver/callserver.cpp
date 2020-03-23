@@ -416,10 +416,10 @@ void LoadSettings()
 	char ParamValue[MAXPARAMSIZE];
 	int sl;
 	int n, np, nv;
-	FILE *f = fopen( "params.ini", "r" );
+	FILE *f = fopen(CONFIG_FILE, "r" );
 	if(f == NULL)
 	{
-		Log( TRC_SETT, TRC_CRITICAL, -1, "Cannot find 'params.ini'" );
+		Log( TRC_SETT, TRC_CRITICAL, -1, "Cannot find '%s'", CONFIG_FILE);
 		exit( 1 );
 	}
 	while(!feof( f ))
@@ -953,11 +953,7 @@ void process_event()
 			LogGC( TRC_INFO, index, evttype, str );
 			switch(Mode)
 			{
-			case 1:		// Missed call
-				Log(TRC_CORE, TRC_INFO, index, "MissedCall: dropping with reason %d", reasonCodeIP2reasonCodeDialogic(reasonCodeIP));
-				InitDisconnect(index, reasonCodeIP2reasonCodeDialogic(reasonCodeIP));
-				break;
-			case 2:		// SSP mode. Send informing to SCP
+			case 1:		// SSP mode. Send informing to SCP
 				ssp_scp::Offered messageOffered;
 				messageOffered.sspEvent.eventCode = ssp_scp::SSPEventCodes::OFFERED;
 				strncpy( messageOffered.CgPN, ChannelInfo[index].CgPN, MAX_NUMSIZE );

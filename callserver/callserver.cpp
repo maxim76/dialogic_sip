@@ -720,9 +720,7 @@ void InitNetwork()
 	}
 #endif
 
-	//UDPRequest request( scpIP, scpPort );
 	pUDPRequest = new UDPRequest( scpIP, scpPort );
-	//if(!request.ready())
 	if(!pUDPRequest->ready())
 	{
 		fprintf( stderr, "UDPRequest initialization failed\n" );
@@ -740,9 +738,52 @@ void processNetwork()
 
 	while(pUDPRequest->recv( &req_id, &isTimeout, data, &len ))
 	{
-		Log( TRC_CORE, TRC_DUMP, req_id, "Recv from SCP" );
-		InitDisconnect( req_id );
+		if(!isTimeout)
+		{
+			Log( TRC_CORE, TRC_DUMP, req_id, "processNetwork() : Recv from SCP" );
+			if (!processPacket(req_id, data, len))
+			{
+				Log(TRC_CORE, TRC_WARNING, req_id, "processNetwork() : processPacket failed");
+				InitDisconnect(req_id);
+			}
+		}
+		else
+		{
+			Log( TRC_CORE, TRC_WARNING, req_id, "processNetwork() : Request timeout" );
+			InitDisconnect( req_id );
+		}
 	}
+}
+//---------------------------------------------------------------------------
+bool processPacket(unsigned int channel, const char *data, size_t len)
+{
+	ssp_scp::SCPCommand *scpCommand;
+	if (len < sizeof(ssp_scp::SSPEvent))
+	{
+		Log(TRC_CORE, TRC_ERROR, channel, "processPacket() : Packet size %u is too short to read SCPCommand code", len);
+		return false;
+	}
+	scpCommand = (ssp_scp::SCPCommand *)data;
+	switch (scpCommand->commandCode)
+	{
+	case ssp_scp::SCPCommandCodes::CMD_DROP:
+	{
+		if (len < sizeof(ssp_scp::CmdDrop)) {
+			Log(TRC_CORE, TRC_ERROR, channel, "processPacket() : Packet size %u is too short to read ssp_scp::CmdDrop, expected %u bytes", len, sizeof(ssp_scp::CmdDrop));
+			return false;
+		}
+		ssp_scp::CmdDrop *cmdDrop = (ssp_scp::CmdDrop *)data;
+		Log(TRC_CORE, TRC_INFO, channel, "processPacket() : received command DROP with reason %u", cmdDrop->reason);
+		int reasonCodeDialogic = reasonCodeIP2reasonCodeDialogic(cmdDrop->reason);
+		Log(TRC_CORE, TRC_INFO, channel, "processPacket() : invoking dropCall with reason %d", reasonCodeDialogic);
+		InitDisconnect(channel, reasonCodeDialogic);
+	}
+		break;
+	default:
+		Log(TRC_CORE, TRC_ERROR, channel, "processPacket() : Unknown command %u", scpCommand->commandCode);
+		return false;
+	}
+	return true;
 }
 //---------------------------------------------------------------------------
 void processGlobalCall()
@@ -910,25 +951,11 @@ void process_event()
 
 			sprintf( str, "CgPN:[%s] CdPN:[%s] RdPN:[%s] (reason=%d)", ChannelInfo[index].CgPN, ChannelInfo[index].CdPN, ChannelInfo[index].RdPN, ChannelInfo[index].reasonCode );
 			LogGC( TRC_INFO, index, evttype, str );
-			int reasonCodeDialogic;
 			switch(Mode)
 			{
 			case 1:		// Missed call
-				switch(reasonCodeIP)
-				{
-				case 480:
-					reasonCodeDialogic = IPEC_SIPReasonStatus480TemporarilyUnavailable;
-					Log(TRC_CORE, TRC_INFO, index, "MissedCall: dropping with reason 480TemporarilyUnavailable");
-					break;
-				case 486:
-					reasonCodeDialogic = IPEC_SIPReasonStatus486BusyHere;
-					Log( TRC_CORE, TRC_INFO, index, "MissedCall: dropping with reason 486BusyHere" );
-					break;
-				default:
-					Log( TRC_CORE, TRC_INFO, index, "MissedCall: no redirection reason. Dropping with reason NORMAL_CLEARING" );
-					reasonCodeDialogic = GC_NORMAL_CLEARING;
-				}
-				InitDisconnect(index, reasonCodeDialogic );
+				Log(TRC_CORE, TRC_INFO, index, "MissedCall: dropping with reason %d", reasonCodeIP2reasonCodeDialogic(reasonCodeIP));
+				InitDisconnect(index, reasonCodeIP2reasonCodeDialogic(reasonCodeIP));
 				break;
 			case 2:		// SSP mode. Send informing to SCP
 				ssp_scp::Offered messageOffered;
@@ -942,7 +969,6 @@ void process_event()
 				size_t filledSize;
 				messageOffered.pack( buffer, MAX_DATAGRAM_SIZE, &filledSize );
 				pUDPRequest->send( index, buffer, filledSize );
-				//pUDPRequest->send( index, (char *)&messageOffered, sizeof( messageOffered ));
 				break;
 			default:	// other modes, that requires connection
 				if(SendCallAck > 0)
@@ -1369,6 +1395,18 @@ void InitNewCall( int N )
 		ChannelInfo[N].Calls[0].SState = GCST_NULL;
 		ChannelInfo[N].PState = PST_IDLE;
 	}
+}
+//---------------------------------------------------------------------------------
+int  reasonCodeIP2reasonCodeDialogic(unsigned int reasonCodeIP)
+{
+	switch (reasonCodeIP)
+	{
+	case 480:
+		return IPEC_SIPReasonStatus480TemporarilyUnavailable;
+	case 486:
+		return IPEC_SIPReasonStatus486BusyHere;
+	}
+	return GC_NORMAL_CLEARING;
 }
 //---------------------------------------------------------------------------------
 void writeStatistics()

@@ -1,5 +1,7 @@
 namespace ssp_scp
 {
+#pragma pack(1)
+
 enum SSPEventCodes
 {
 	OFFERED = 0,
@@ -8,7 +10,7 @@ enum SSPEventCodes
 
 struct SSPEvent
 {
-	char eventCode;
+	unsigned char eventCode;
 };
 static_assert(MAX_NUMSIZE < 256, "String field size must fit 1 byte");
 struct Offered
@@ -51,6 +53,22 @@ struct Offered
 		*filledSize = totalSize;
 		return true;
 	}
+};
+
+enum SCPCommandCodes
+{
+	CMD_DROP = 0
+};
+
+struct SCPCommand
+{
+	unsigned char commandCode;
+};
+
+struct CmdDrop
+{
+	SCPCommand scpCommand;
+	unsigned short reason;
 };
 
 };

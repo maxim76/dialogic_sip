@@ -740,7 +740,7 @@ void processNetwork()
 	{
 		if(!isTimeout)
 		{
-			Log( TRC_CORE, TRC_DUMP, req_id, "processNetwork() : Recv from SCP" );
+			Log( TRC_CORE, TRC_DUMP, req_id, "processNetwork() : Recv from SCP (%u bytes)", len );
 			if (!processPacket(req_id, data, len))
 			{
 				Log(TRC_CORE, TRC_WARNING, req_id, "processNetwork() : processPacket failed");
@@ -936,20 +936,24 @@ void process_event()
 				strncpy( ChannelInfo[index].CgPN, st, MAX_NUMSIZE ); else ChannelInfo[index].CgPN[0] = 0;
 			std::string RdPN;
 			std::string reason;
+			std::string fullRdPNInfo;
 			int reasonCodeIP;
 			if(GetSIPRdPN( (GC_PARM_BLKP)metaevent.extevtdatap, RdPN, reason, &reasonCodeIP ))
 			{
-				std::string fullRdPNInfo = RdPN + " (reason=" + reason + ")";
-				strncpy( ChannelInfo[index].RdPN, fullRdPNInfo.c_str(), MAX_NUMSIZE );
+				fullRdPNInfo = RdPN + " (reason=" + reason + ")";
+				//strncpy( ChannelInfo[index].RdPN, fullRdPNInfo.c_str(), MAX_NUMSIZE );
+				strncpy(ChannelInfo[index].RdPN, RdPN.c_str(), MAX_NUMSIZE);
 				ChannelInfo[index].reasonCode = reasonCodeIP;
 			}
 			else
 			{
+				fullRdPNInfo = "";
 				ChannelInfo[index].RdPN[0] = 0;
 				ChannelInfo[index].reasonCode = 0;
 			}
 
-			sprintf( str, "CgPN:[%s] CdPN:[%s] RdPN:[%s] (reason=%d)", ChannelInfo[index].CgPN, ChannelInfo[index].CdPN, ChannelInfo[index].RdPN, ChannelInfo[index].reasonCode );
+			//sprintf( str, "CgPN:[%s] CdPN:[%s] RdPN:[%s] (reason=%d)", ChannelInfo[index].CgPN, ChannelInfo[index].CdPN, ChannelInfo[index].RdPN, ChannelInfo[index].reasonCode );
+			sprintf(str, "CgPN:[%s] CdPN:[%s] RdPN:[%s] (reason=%d)", ChannelInfo[index].CgPN, ChannelInfo[index].CdPN, fullRdPNInfo.c_str(), ChannelInfo[index].reasonCode);
 			LogGC( TRC_INFO, index, evttype, str );
 			switch(Mode)
 			{
@@ -964,6 +968,7 @@ void process_event()
 				char buffer[MAX_DATAGRAM_SIZE];
 				size_t filledSize;
 				messageOffered.pack( buffer, MAX_DATAGRAM_SIZE, &filledSize );
+				Log(TRC_CORE, TRC_DUMP, index, "process_event() : Send Offered event to SCP (%u bytes)", filledSize);
 				pUDPRequest->send( index, buffer, filledSize );
 				break;
 			default:	// other modes, that requires connection
@@ -1402,7 +1407,8 @@ int  reasonCodeIP2reasonCodeDialogic(unsigned int reasonCodeIP)
 	case 486:
 		return IPEC_SIPReasonStatus486BusyHere;
 	}
-	return GC_NORMAL_CLEARING;
+	//return GC_NORMAL_CLEARING;
+	return IPEC_InternalReasonNormal;
 }
 //---------------------------------------------------------------------------------
 void writeStatistics()

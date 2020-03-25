@@ -1,5 +1,6 @@
 namespace ssp_scp
 {
+	typedef unsigned short RedirectionReason;
 #pragma pack(1)
 
 enum SSPEventCodes
@@ -19,13 +20,13 @@ struct Offered
 	char CgPN[MAX_NUMSIZE];
 	char CdPN[MAX_NUMSIZE];
 	char RdPN[MAX_NUMSIZE];
-	unsigned int redirectionReason;
+	RedirectionReason redirectionReason;
 	bool pack( char *buffer, size_t bufferSize, size_t *filledSize )
 	{
 		size_t lenCgPN = strlen( CgPN );
 		size_t lenCdPN = strlen( CdPN );
 		size_t lenRdPN = strlen( RdPN );
-		size_t totalSize = 1 + 1 + lenCgPN + 1 + lenCdPN + 1 + lenRdPN + sizeof( unsigned int );
+		size_t totalSize = 1 + 1 + lenCgPN + 1 + lenCdPN + 1 + lenRdPN + sizeof(RedirectionReason);
 		if(bufferSize < totalSize) return false;
 
 		size_t pos = 0;
@@ -48,7 +49,9 @@ struct Offered
 		strncpy( &(buffer[pos]), RdPN, bufferSize - pos );
 		pos += lenRdPN;
 		// redirectionReason
-		buffer[pos] = redirectionReason;
+		// pack 2 bytes as little-endian
+		buffer[pos] = redirectionReason & (0xff);
+		buffer[pos + 1] = (redirectionReason & (0xff00)) >> 8;
 
 		*filledSize = totalSize;
 		return true;
@@ -68,7 +71,7 @@ struct SCPCommand
 struct CmdDrop
 {
 	SCPCommand scpCommand;
-	unsigned short reason;
+	RedirectionReason reason;
 };
 
 };

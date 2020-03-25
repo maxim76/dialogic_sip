@@ -52,7 +52,7 @@ class SCP:
         @param channel  :   IVR channel number where event happened
         @data           :   raw content of the request
         """
-        logger.info("onRequestReceived() :")
+        logger.info("onRequestReceived :")
 
         if len(data) == 0:
             logger.error("Malformed request")

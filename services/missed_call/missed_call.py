@@ -2,7 +2,7 @@ import sys
 sys.path.append('..')
 from scp import SCP
 from logger import getLogger
-#from services.sdp import SDP
+#from sdp import SDP
 from sdp_test import SDP
 from scp_interface import CallServerCommand
 
@@ -18,13 +18,14 @@ class MissedCall(SCP):
         self.sdp = SDP(dbconfig.username, dbconfig.password, dbconfig.database)
 
     def onOffered(self, channel, event, handler):
-        cgPN = event.CgPN
-        rdPN = event.RdPN
-        reason = event.reason
-        logger.debug("onOffered()")
+        logger.info("onOffered : CgPN = %s, RdPN = %s, reason = %d" % (event.CgPN, event.RdPN, event.reason))
+        cgPN = event.CgPN.split('@')[0]
+        rdPN = event.RdPN.split('@')[0]
+        logger.debug("onOffered : Resolved numbers: CgPN = %s, RdPN = %s" % (cgPN, rdPN))
 
         # send drop call to callserver
-        response = CallServerCommand.dropCall(reason)
+        response = CallServerCommand.dropCall(event.reason)
+        logger.debug("onOffered : sending command DROP with reason %d" % event.reason)
         handler.sendResponse(channel, response)
 
         # Check service
@@ -37,7 +38,7 @@ class MissedCall(SCP):
         notifType = result[1]['NotifType']
 
         # Add to History
-        result = self.sdp.addToHistory(serviceSN, cgPN, 1, reason, self.needOnlyOne)
+        result = self.sdp.addToHistory(serviceSN, cgPN, 1, event.reason, self.needOnlyOne)
         if result[0] == 0:
             logger.error("onOffered() : addToHistory error")
             return

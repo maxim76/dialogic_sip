@@ -1,2 +1,8 @@
 bin/
 build/
+Logs/
+logs/
+__pycache__/
+*.o
+xlog.bin
+callserver.cfg

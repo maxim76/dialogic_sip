@@ -168,7 +168,7 @@ bool UDPRequest::recv( TReqID *req_id, bool *isTimeout, char *data, size_t *len 
 		}
 	}
 
-	// No more data available in socket, check if amy timeout occured
+	// No more data available in socket, check if any timeout occured
 	while(currentReqIndex < MAX_REQUEST_COUNT)
 	{
 		if(requests[currentReqIndex].isActive)

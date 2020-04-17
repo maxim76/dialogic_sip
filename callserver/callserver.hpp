@@ -36,6 +36,8 @@
 #define MAXCHANS	2000  // Potential maximum of configured channels
 #define MAX_CALLS       2
 //---------------------------------------------------------------------------
+#define CONFIG_FILE		"callserver.cfg"
+//---------------------------------------------------------------------------
 #define MAXPARAMSIZE    128
 
 #define PRM_CHANNELSCNT		0
@@ -50,6 +52,8 @@
 #define PRM_CGPN			9
 #define PRM_MODE			10
 #define PRM_FRAGMENT		11
+#define PRM_SCPIP			12
+#define PRM_SCPPORT			13
 //---------------------------------------------------------------------------
 #define DEFAULT_ERRLOG_FILTER	TRC_ERROR
 #define DEFAULT_CHANNELSCNT		2
@@ -60,6 +64,8 @@
 #define DEFAULT_SENDACM			0
 #define DEFAULT_MODE			0
 #define DEFAULT_FRAGMENT		"hello.wav"
+#define DEFAULT_SCPIP			"127.0.0.1"
+#define DEFAULT_SCPPORT			10000
 //---------------------------------------------------------------------------
 struct T_ParamDef {
 	int ID;
@@ -78,6 +84,8 @@ const struct T_ParamDef Parameters[] = {
 		{PRM_CGPN,       "CgPN" },
 		{PRM_MODE,			"Mode"},
 		{ PRM_FRAGMENT,   "Fragment" },
+		{PRM_SCPIP,			"ScpIP"},
+		{PRM_SCPPORT,		"ScpPort"}
 };
 //---------------------------------------------------------------------------
 #define MAXGCEVENT	0x100
@@ -148,6 +156,8 @@ char CdPN[MAXPARAMSIZE];
 char CgPN[MAXPARAMSIZE];
 char defaultFragment[MAXPARAMSIZE];
 int Mode;
+char scpIP[MAXPARAMSIZE];
+int scpPort;
 
 
 // Statistics
@@ -168,8 +178,13 @@ static void intr_hdlr( int receivedSignal );
 void LoadSettings();
 void InitLogFile();
 void InitDialogicLibs();
+void InitNetwork();
 void Deinit();
-void process_event( void );
+void processGlobalCall();
+void processNetwork();
+bool processPacket(unsigned int channel, const char *data, size_t len);
+bool checkAppExitCondition();
+void process_event();
 void InitChannels();
 void RegNewCall( int LineNo, CRN crn, int State );
 int  GetSIPRdPN( GC_PARM_BLK	*paramblkp, std::string & RdPN, std::string & reason, int * reasonCode );
@@ -179,4 +194,5 @@ int  FindParam( char *ParamName );
 bool InitPlayFragment( int index, const char *filename );
 void InitDisconnect( int index, int reason = GC_NORMAL_CLEARING );
 void InitNewCall( int index );
+int  reasonCodeIP2reasonCodeDialogic(unsigned int reasonCodeIP);
 void writeStatistics();

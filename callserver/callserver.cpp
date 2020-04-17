@@ -12,17 +12,22 @@
 #ifdef _WIN32
 #include <winsock2.h>
 #include <io.h>
+#include <direct.h>
 #else
 #include <unistd.h>
 #include <netdb.h>
 #include <sys/socket.h>
 #include <arpa/inet.h>
+#include <sys/stat.h>
 #endif
 
 #include <algorithm>
 #include <unordered_map>
 
 #include "callserver.hpp"
+#include "udp_request.hpp"
+#include "ssp_scp_interface.hpp"
+
 
 #ifdef WIN32
 #pragma comment(lib, "libsrlmt.lib")
@@ -37,20 +42,15 @@ time_t			start_time;		// To note down the start time
 FILE *fLog;
 FILE *fErrorLog;
 FILE *fStat;
+UDPRequest *pUDPRequest;
 
 int main( void )
 {
-	int ret;
-	int i;
-	int fCanClose = 0;
-	char str[LOGSTRSIZE];
-
 	time( &start_time );
 	InitLogFile();
 	Log( TRC_CORE, TRC_INFO, -1, "********** IVR server started ***********" );
 
-	// Give control to Event Handler
-
+	// Set Ctrl+C interruption handler for clean app shutdown
 #ifdef _WIN32
 	signal( SIGINT, (void( __cdecl* )(int)) intr_hdlr );
 	signal( SIGTERM, (void( __cdecl* )(int)) intr_hdlr );
@@ -63,50 +63,19 @@ int main( void )
 
 	init_srl_mode();									// set SRL mode to ASYNC, polled
 	LoadSettings();
-
 	InitDialogicLibs();
 	InitChannels();
+	InitNetwork();
 
 	// Forever loop where the main work is done - wait for an event or user requested exit
 	Log( TRC_CORE, TRC_INFO, -1, "Entering Working State" );
-	for(;;)
+	while(true)
 	{
-		ret = sr_waitevt( 500 );					// 1/2 second
-		if(ret != -1)
-		{
-			process_event();
-		}
-		if(interrupted == YES)	// flag set in intr_hdlr() 
-		{
-			fCanClose = 1;
-			for(i = 0; i < TotalChannels; i++)
-			{
-				switch(ChannelInfo[i].PState)
-				{
-				case PST_NULL:
-				case PST_IDLE:
-					ret = gc_Close( ChannelInfo[i].hdLine );
-					LogFunc( i, "gc_Close()", ret );
-					ChannelInfo[i].PState = PST_SHUTDOWN;
-				}
-
-				if(ChannelInfo[i].PState != PST_SHUTDOWN)
-				{
-					sprintf( str, "Waiting for channel [%d], state %d", i, ChannelInfo[i].PState );
-					Log( TRC_CORE, TRC_DUMP, -1, str );
-					fCanClose = 0;
-				}
-			}
-			if(fCanClose)
-			{
-				Log( TRC_CORE, TRC_WARNING, -1, "Application Stopped" );
-				fclose( fLog );
-				fclose( fErrorLog );
-				fclose( fStat );
-				return 0;
-			}
-		}
+		processGlobalCall();
+		processNetwork();
+		if(checkAppExitCondition()) break;
 	}
+	Log( TRC_CORE, TRC_WARNING, -1, "Application Stopped" );
 }
 
 /****************************************************************
@@ -162,12 +131,26 @@ static void intr_hdlr( int receivedSignal )
 //---------------------------------------------------------------------------
 void InitLogFile()
 {
+	const char * logDir = "./Logs/";
+	// Create directory for log files if it does not exist
+	int res;
+#ifdef _WIN32
+	res = _mkdir( logDir );
+#else
+	res = mkdir( logDir, 0733 );
+#endif
+	if ((res != 0) && (errno != EEXIST))
+	{
+		printf( "Cannot create log dir. Error: %d (%s)\n", errno, strerror(errno) );
+		exit( 1 );
+	}
+
 	char sFN[64];
 	struct tm *tblock;
 	tblock = localtime( &start_time );
 
 	// Full log file
-	sprintf( sFN, "./Logs/ivrserv_%04d%02d%02d_%02d%02d%02d.txt", tblock->tm_year + 1900, tblock->tm_mon, tblock->tm_mday, tblock->tm_hour, tblock->tm_min, tblock->tm_sec );
+	sprintf( sFN, "%s/ivrserv_%04d%02d%02d_%02d%02d%02d.txt", logDir, tblock->tm_year + 1900, tblock->tm_mon, tblock->tm_mday, tblock->tm_hour, tblock->tm_min, tblock->tm_sec );
 	if((fLog = fopen( sFN, "w" )) == NULL)
 	{
 		printf( "Cannot create log file. Termination.\n" );
@@ -175,7 +158,7 @@ void InitLogFile()
 	}
 
 	// Errors only
-	sprintf( sFN, "./Logs/errors_%04d%02d%02d_%02d%02d%02d.txt", tblock->tm_year + 1900, tblock->tm_mon, tblock->tm_mday, tblock->tm_hour, tblock->tm_min, tblock->tm_sec );
+	sprintf( sFN, "%s/errors_%04d%02d%02d_%02d%02d%02d.txt", logDir, tblock->tm_year + 1900, tblock->tm_mon, tblock->tm_mday, tblock->tm_hour, tblock->tm_min, tblock->tm_sec );
 	if((fErrorLog = fopen( sFN, "w" )) == NULL)
 	{
 		printf( "Cannot create error log file. Termination.\n" );
@@ -183,7 +166,7 @@ void InitLogFile()
 	}
 
 	// Statistics
-	sprintf( sFN, "./Logs/stat_%04d%02d%02d_%02d%02d%02d.txt", tblock->tm_year + 1900, tblock->tm_mon, tblock->tm_mday, tblock->tm_hour, tblock->tm_min, tblock->tm_sec );
+	sprintf( sFN, "%s/stat_%04d%02d%02d_%02d%02d%02d.txt", logDir, tblock->tm_year + 1900, tblock->tm_mon, tblock->tm_mday, tblock->tm_hour, tblock->tm_min, tblock->tm_sec );
 	if((fStat = fopen( sFN, "w" )) == NULL)
 	{
 		printf( "Cannot create statistics file. Termination.\n" );
@@ -424,6 +407,8 @@ void LoadSettings()
 	SendCallAck = DEFAULT_SENDCALLACK;
 	SendACM = DEFAULT_SENDACM;
 	strncpy( defaultFragment, DEFAULT_FRAGMENT, MAXPARAMSIZE );
+	strncpy( scpIP, DEFAULT_SCPIP, MAXPARAMSIZE );
+	scpPort = DEFAULT_SCPPORT;
 
 	char logstr[LOGSTRSIZE];
 	char str[MAXPARAMSIZE];
@@ -431,10 +416,10 @@ void LoadSettings()
 	char ParamValue[MAXPARAMSIZE];
 	int sl;
 	int n, np, nv;
-	FILE *f = fopen( "params.ini", "r" );
+	FILE *f = fopen(CONFIG_FILE, "r" );
 	if(f == NULL)
 	{
-		Log( TRC_SETT, TRC_CRITICAL, -1, "Cannot find 'params.ini'" );
+		Log( TRC_SETT, TRC_CRITICAL, -1, "Cannot find '%s'", CONFIG_FILE);
 		exit( 1 );
 	}
 	while(!feof( f ))
@@ -633,6 +618,32 @@ void LoadSettings()
 					Log( TRC_SETT, TRC_ERROR, -1, logstr );
 				}
 				break;
+			case PRM_SCPIP:
+				if(sscanf( ParamValue, "%s", scpIP ) == 1)
+				{
+					sprintf( logstr, "Set SCP IP = '%s'", scpIP );
+					Log( TRC_SETT, TRC_DUMP, -1, logstr );
+				}
+				else
+				{
+					strncpy( scpIP, DEFAULT_SCPIP, MAXPARAMSIZE );
+					sprintf( logstr, "Wrong parameter set: %s=%s", ParamName, ParamValue );
+					Log( TRC_SETT, TRC_ERROR, -1, logstr );
+				}
+				break;
+			case PRM_SCPPORT:
+				if(sscanf( ParamValue, "%d", &scpPort ) == 1)
+				{
+					sprintf( logstr, "Set SCP Port = %d", scpPort );
+					Log( TRC_SETT, TRC_DUMP, -1, logstr );
+				}
+				else
+				{
+					scpPort = DEFAULT_SCPPORT;
+					sprintf( logstr, "Wrong parameter set: %s=%s", ParamName, ParamValue );
+					Log( TRC_SETT, TRC_ERROR, -1, logstr );
+				}
+				break;
 			default:
 				sprintf( logstr, "Unimplemented initialization: %s=%s", ParamName, ParamValue );
 				Log( TRC_SETT, TRC_ERROR, -1, logstr );
@@ -696,13 +707,137 @@ void InitChannels()
 		}
 	}
 }
+//---------------------------------------------------------------------------
+void InitNetwork()
+{
+#ifdef WIN32
+	// Initialize Windows socket library
+	WSADATA wsaData;
+	if(WSAStartup( MAKEWORD( 1, 1 ), &wsaData ) != 0)
+	{
+		fprintf( stderr, "WSAStartup() failed\n" );
+		exit(-1);
+	}
+#endif
+
+	pUDPRequest = new UDPRequest( scpIP, scpPort );
+	if(!pUDPRequest->ready())
+	{
+		fprintf( stderr, "UDPRequest initialization failed\n" );
+		exit( -1 );
+	}
+}
+//---------------------------------------------------------------------------
+void processNetwork()
+{
+	pUDPRequest->update();
+	bool isTimeout;
+	unsigned int req_id;
+	char data[MAX_DATAGRAM_SIZE];
+	size_t len;
+
+	while(pUDPRequest->recv( &req_id, &isTimeout, data, &len ))
+	{
+		if(!isTimeout)
+		{
+			Log( TRC_CORE, TRC_DUMP, req_id, "processNetwork() : Recv from SCP (%u bytes)", len );
+			if (!processPacket(req_id, data, len))
+			{
+				Log(TRC_CORE, TRC_WARNING, req_id, "processNetwork() : processPacket failed");
+				InitDisconnect(req_id);
+			}
+		}
+		else
+		{
+			Log( TRC_CORE, TRC_WARNING, req_id, "processNetwork() : Request timeout" );
+			InitDisconnect( req_id );
+		}
+	}
+}
+//---------------------------------------------------------------------------
+bool processPacket(unsigned int channel, const char *data, size_t len)
+{
+	ssp_scp::SCPCommand *scpCommand;
+	if (len < sizeof(ssp_scp::SSPEvent))
+	{
+		Log(TRC_CORE, TRC_ERROR, channel, "processPacket() : Packet size %u is too short to read SCPCommand code", len);
+		return false;
+	}
+	scpCommand = (ssp_scp::SCPCommand *)data;
+	switch (scpCommand->commandCode)
+	{
+	case ssp_scp::SCPCommandCodes::CMD_DROP:
+	{
+		if (len < sizeof(ssp_scp::CmdDrop)) {
+			Log(TRC_CORE, TRC_ERROR, channel, "processPacket() : Packet size %u is too short to read ssp_scp::CmdDrop, expected %u bytes", len, sizeof(ssp_scp::CmdDrop));
+			return false;
+		}
+		ssp_scp::CmdDrop *cmdDrop = (ssp_scp::CmdDrop *)data;
+		Log(TRC_CORE, TRC_INFO, channel, "processPacket() : received command DROP with reason %u", cmdDrop->reason);
+		int reasonCodeDialogic = reasonCodeIP2reasonCodeDialogic(cmdDrop->reason);
+		Log(TRC_CORE, TRC_INFO, channel, "processPacket() : invoking dropCall with reason %d", reasonCodeDialogic);
+		InitDisconnect(channel, reasonCodeDialogic);
+	}
+		break;
+	default:
+		Log(TRC_CORE, TRC_ERROR, channel, "processPacket() : Unknown command %u", scpCommand->commandCode);
+		return false;
+	}
+	return true;
+}
+//---------------------------------------------------------------------------
+void processGlobalCall()
+{
+	int ret = sr_waitevt( 100 );
+	if(ret != -1)
+	{
+		process_event();
+	}
+}
+//---------------------------------------------------------------------------
+bool checkAppExitCondition()
+{
+	char str[LOGSTRSIZE];
+	if(interrupted != YES) return false; // flag set in intr_hdlr()
+	bool fCanClose = 1;
+	int ret;
+	for(int i = 0; i < TotalChannels; i++)
+	{
+		switch(ChannelInfo[i].PState)
+		{
+		case PST_NULL:
+		case PST_IDLE:
+			ret = gc_Close( ChannelInfo[i].hdLine );
+			LogFunc( i, "gc_Close()", ret );
+			ChannelInfo[i].PState = PST_SHUTDOWN;
+		}
+
+		if(ChannelInfo[i].PState != PST_SHUTDOWN)
+		{
+			sprintf( str, "Waiting for channel [%d], state %d", i, ChannelInfo[i].PState );
+			Log( TRC_CORE, TRC_DUMP, -1, str );
+			fCanClose = 0;
+		}
+	}
+	if(fCanClose)
+	{
+		fclose( fLog );
+		fclose( fErrorLog );
+		fclose( fStat );
+		return true;
+	}
+	else
+	{
+		return false;
+	}
+}
 /****************************************************************
 *			NAME: process_event(void)
 * DESCRIPTION: Function to handle the GlobalCall Events
 *		RETURNS: NA
 *	  CAUTIONS: none
 ****************************************************************/
-void process_event( void )
+void process_event()
 {
 	METAEVENT	metaevent;
 	char		str[LOGSTRSIZE];
@@ -801,40 +936,40 @@ void process_event( void )
 				strncpy( ChannelInfo[index].CgPN, st, MAX_NUMSIZE ); else ChannelInfo[index].CgPN[0] = 0;
 			std::string RdPN;
 			std::string reason;
+			std::string fullRdPNInfo;
 			int reasonCodeIP;
 			if(GetSIPRdPN( (GC_PARM_BLKP)metaevent.extevtdatap, RdPN, reason, &reasonCodeIP ))
 			{
-				std::string fullRdPNInfo = RdPN + " (reason=" + reason + ")";
-				strncpy( ChannelInfo[index].RdPN, fullRdPNInfo.c_str(), MAX_NUMSIZE );
+				fullRdPNInfo = RdPN + " (reason=" + reason + ")";
+				//strncpy( ChannelInfo[index].RdPN, fullRdPNInfo.c_str(), MAX_NUMSIZE );
+				strncpy(ChannelInfo[index].RdPN, RdPN.c_str(), MAX_NUMSIZE);
 				ChannelInfo[index].reasonCode = reasonCodeIP;
 			}
 			else
 			{
+				fullRdPNInfo = "";
 				ChannelInfo[index].RdPN[0] = 0;
 				ChannelInfo[index].reasonCode = 0;
 			}
 
-			sprintf( str, "CgPN:[%s] CdPN:[%s] RdPN:[%s] (reason=%d)", ChannelInfo[index].CgPN, ChannelInfo[index].CdPN, ChannelInfo[index].RdPN, ChannelInfo[index].reasonCode );
+			//sprintf( str, "CgPN:[%s] CdPN:[%s] RdPN:[%s] (reason=%d)", ChannelInfo[index].CgPN, ChannelInfo[index].CdPN, ChannelInfo[index].RdPN, ChannelInfo[index].reasonCode );
+			sprintf(str, "CgPN:[%s] CdPN:[%s] RdPN:[%s] (reason=%d)", ChannelInfo[index].CgPN, ChannelInfo[index].CdPN, fullRdPNInfo.c_str(), ChannelInfo[index].reasonCode);
 			LogGC( TRC_INFO, index, evttype, str );
-			int reasonCodeDialogic;
 			switch(Mode)
 			{
-			case 1:		// Missed call
-				switch(reasonCodeIP)
-				{
-				case 480:
-					reasonCodeDialogic = IPEC_SIPReasonStatus480TemporarilyUnavailable;
-					Log(TRC_CORE, TRC_INFO, index, "MissedCall: dropping with reason 480TemporarilyUnavailable");
-					break;
-				case 486:
-					reasonCodeDialogic = IPEC_SIPReasonStatus486BusyHere;
-					Log( TRC_CORE, TRC_INFO, index, "MissedCall: dropping with reason 486BusyHere" );
-					break;
-				default:
-					Log( TRC_CORE, TRC_INFO, index, "MissedCall: no redirection reason. Dropping with reason NORMAL_CLEARING" );
-					reasonCodeDialogic = GC_NORMAL_CLEARING;
-				}
-				InitDisconnect(index, reasonCodeDialogic );
+			case 1:		// SSP mode. Send informing to SCP
+				ssp_scp::Offered messageOffered;
+				messageOffered.sspEvent.eventCode = ssp_scp::SSPEventCodes::OFFERED;
+				strncpy( messageOffered.CgPN, ChannelInfo[index].CgPN, MAX_NUMSIZE );
+				strncpy( messageOffered.CdPN, ChannelInfo[index].CdPN, MAX_NUMSIZE );
+				strncpy( messageOffered.RdPN, ChannelInfo[index].RdPN, MAX_NUMSIZE );
+				messageOffered.redirectionReason = reasonCodeIP;
+
+				char buffer[MAX_DATAGRAM_SIZE];
+				size_t filledSize;
+				messageOffered.pack( buffer, MAX_DATAGRAM_SIZE, &filledSize );
+				Log(TRC_CORE, TRC_DUMP, index, "process_event() : Send Offered event to SCP (%u bytes)", filledSize);
+				pUDPRequest->send( index, buffer, filledSize );
 				break;
 			default:	// other modes, that requires connection
 				if(SendCallAck > 0)
@@ -907,6 +1042,8 @@ void process_event( void )
 					break;
 				default:
 					Log( TRC_CORE, TRC_ERROR, index, "Misconfiguration: unsupported Mode" );
+					ret = gc_DropCall( TempCRN, GC_NORMAL_CLEARING, EV_ASYNC );
+					LogFunc( index, "gc_DropCall()", ret );
 				}
 			}
 			else
@@ -1259,6 +1396,19 @@ void InitNewCall( int N )
 		ChannelInfo[N].Calls[0].SState = GCST_NULL;
 		ChannelInfo[N].PState = PST_IDLE;
 	}
+}
+//---------------------------------------------------------------------------------
+int  reasonCodeIP2reasonCodeDialogic(unsigned int reasonCodeIP)
+{
+	switch (reasonCodeIP)
+	{
+	case 480:
+		return IPEC_SIPReasonStatus480TemporarilyUnavailable;
+	case 486:
+		return IPEC_SIPReasonStatus486BusyHere;
+	}
+	//return GC_NORMAL_CLEARING;
+	return IPEC_InternalReasonNormal;
 }
 //---------------------------------------------------------------------------------
 void writeStatistics()

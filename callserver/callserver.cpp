@@ -694,7 +694,7 @@ void InitChannels()
 		}
 		absoluteChannelIndex = FirstChannel + i;
 		sprintf( FullDevName, ":P_SIP:N_iptB1T%d:M_ipmB1C%d:V_dxxxB%dC%d",
-			absoluteChannelIndex + 1,
+			i + 1,
 			absoluteChannelIndex + 1,
 			(absoluteChannelIndex / 4) + 1,
 			(absoluteChannelIndex % 4) + 1 );

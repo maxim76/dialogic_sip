@@ -54,6 +54,7 @@
 #define PRM_FRAGMENT		11
 #define PRM_SCPIP			12
 #define PRM_SCPPORT			13
+#define PRM_IPTDEVICESCNT	14
 //---------------------------------------------------------------------------
 #define DEFAULT_ERRLOG_FILTER	TRC_ERROR
 #define DEFAULT_CHANNELSCNT		2
@@ -66,6 +67,7 @@
 #define DEFAULT_FRAGMENT		"hello.wav"
 #define DEFAULT_SCPIP			"127.0.0.1"
 #define DEFAULT_SCPPORT			10000
+#define DEFAULT_IPTDEVICESCNT	120
 //---------------------------------------------------------------------------
 struct T_ParamDef {
 	int ID;
@@ -85,7 +87,8 @@ const struct T_ParamDef Parameters[] = {
 		{PRM_MODE,			"Mode"},
 		{ PRM_FRAGMENT,   "Fragment" },
 		{PRM_SCPIP,			"ScpIP"},
-		{PRM_SCPPORT,		"ScpPort"}
+		{PRM_SCPPORT,		"ScpPort"},
+		{PRM_IPTDEVICESCNT,		"IPTDevicesCount" },
 };
 //---------------------------------------------------------------------------
 #define MAXGCEVENT	0x100
@@ -147,6 +150,7 @@ int TraceMask;
 int SeverityFilter;
 int TotalChannels;  // Number of channels in program instance
 int FirstChannel;
+int IPTDevicesCnt;
 int SendCallAck;   // Send Ringing or no
 int SendACM;
 int LocalIP;

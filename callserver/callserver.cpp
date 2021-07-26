@@ -195,12 +195,10 @@ void InitDialogicLibs()
 	};
 
 	INIT_IP_VIRTBOARD( &virtBoard );
-	if(TotalChannels > 120)
-	{
-		virtBoard.total_max_calls = TotalChannels;
-		virtBoard.h323_max_calls = 0;
-		virtBoard.sip_max_calls = TotalChannels;
-	}
+	virtBoard.total_max_calls = IPTDevicesCnt;
+	virtBoard.h323_max_calls = 0;
+	virtBoard.sip_max_calls = IPTDevicesCnt;
+
 	if(LocalIP != -1)
 	{
 		virtBoard.localIP.ip_ver = IPVER4;
@@ -208,6 +206,7 @@ void InitDialogicLibs()
 	}
 	virtBoard.sip_msginfo_mask = IP_SIP_MSGINFO_ENABLE;
 	INIT_IPCCLIB_START_DATA( &cclibData, 1, &virtBoard );
+	cclibData.max_parm_data_size = 1024;
 
 	gcLibStart.cclib_list = ccLibStart;
 	gcLibStart.num_cclibs = 4;
@@ -216,6 +215,12 @@ void InitDialogicLibs()
 	{
 		sprintf( str, "gc_Start() Failed" );
 		Log( TRC_CORE, TRC_CRITICAL, -1, str );
+		GC_INFO gc_error_info;
+		gc_ErrorInfo( &gc_error_info );
+		printf( "Error: gc_Start(), GC ErrorValue: 0x%hx - %s, CCLibID: %i - %s, CC ErrorValue: 0x%lx - %s\n",
+			gc_error_info.gcValue, gc_error_info.gcMsg,
+			gc_error_info.ccLibId, gc_error_info.ccLibName,
+			gc_error_info.ccValue, gc_error_info.ccMsg );
 		exit( 1 );
 	}
 
@@ -465,6 +470,19 @@ void LoadSettings()
 				else
 				{
 					TotalChannels = DEFAULT_CHANNELSCNT;
+					sprintf( logstr, "Wrong parameter set: %s=%s", ParamName, ParamValue );
+					Log( TRC_SETT, TRC_ERROR, -1, logstr );
+				}
+				break;
+			case PRM_IPTDEVICESCNT:
+				if (sscanf( ParamValue, "%d", &IPTDevicesCnt ) == 1)
+				{
+					sprintf( logstr, "Set IPTDevicesCnt = %d", IPTDevicesCnt );
+					Log( TRC_SETT, TRC_DUMP, -1, logstr );
+				}
+				else
+				{
+					IPTDevicesCnt = DEFAULT_IPTDEVICESCNT;
 					sprintf( logstr, "Wrong parameter set: %s=%s", ParamName, ParamValue );
 					Log( TRC_SETT, TRC_ERROR, -1, logstr );
 				}

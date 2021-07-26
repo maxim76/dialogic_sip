@@ -1,5 +1,18 @@
-FirstChannel=0
+# Parameter ChannelsCount defines how many channels will be opened
 ChannelsCount=1
+#
+# How many IPT Devices the application instance will configure when call gc_Start()
+#	This amount will overwrite default value of 120 devices.
+#	Must not exceed the number of HMP channels that are licensed (if multiple application instances are used, then sum of IPT devices of all instances must not exceed licensed amount per HMP instance).
+IPTDevicesCount=100
+#
+# IPM and dxxx Devices names will be formed using index that is offset by FirstChannel
+#	This allows to configure different device ranges for multiple application instances.
+#	Device name is formed as ":P_SIP:N_iptB1T%d:M_ipmB1C%d:V_dxxxB%dC%d", where ipm and dxxx devices 
+#	start from FirstChannel+1
+#	Note: ipt devices always start from 1 because IPT is local for every application.
+FirstChannel=0
+#
 TraceMask=255
 SeverityFilter=0
 SendCallAck=0
@@ -7,6 +20,9 @@ SendACM=0
 LocalIP=127.0.0.1
 ScpIP=127.0.0.1
 ScpPort=9999
-;Modes: 0 - Autoresponder  1 - SSP
+#
+#Modes: 0 - Autoresponder  1 - SSP
 Mode=0
+#
+# Fragment to play on new call when work in Autoresponder mode
 Fragment=ussr.wav

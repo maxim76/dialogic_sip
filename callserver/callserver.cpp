@@ -150,7 +150,7 @@ void InitLogFile()
 	tblock = localtime( &start_time );
 
 	// Full log file
-	sprintf( sFN, "%s/ivrserv_%04d%02d%02d_%02d%02d%02d.txt", logDir, tblock->tm_year + 1900, tblock->tm_mon, tblock->tm_mday, tblock->tm_hour, tblock->tm_min, tblock->tm_sec );
+	sprintf( sFN, "%s/ivrserv_%04d%02d%02d_%02d%02d%02d.txt", logDir, tblock->tm_year + 1900, tblock->tm_mon + 1, tblock->tm_mday, tblock->tm_hour, tblock->tm_min, tblock->tm_sec );
 	if((fLog = fopen( sFN, "w" )) == NULL)
 	{
 		printf( "Cannot create log file. Termination.\n" );
@@ -158,7 +158,7 @@ void InitLogFile()
 	}
 
 	// Errors only
-	sprintf( sFN, "%s/errors_%04d%02d%02d_%02d%02d%02d.txt", logDir, tblock->tm_year + 1900, tblock->tm_mon, tblock->tm_mday, tblock->tm_hour, tblock->tm_min, tblock->tm_sec );
+	sprintf( sFN, "%s/errors_%04d%02d%02d_%02d%02d%02d.txt", logDir, tblock->tm_year + 1900, tblock->tm_mon + 1, tblock->tm_mday, tblock->tm_hour, tblock->tm_min, tblock->tm_sec );
 	if((fErrorLog = fopen( sFN, "w" )) == NULL)
 	{
 		printf( "Cannot create error log file. Termination.\n" );
@@ -166,7 +166,7 @@ void InitLogFile()
 	}
 
 	// Statistics
-	sprintf( sFN, "%s/stat_%04d%02d%02d_%02d%02d%02d.txt", logDir, tblock->tm_year + 1900, tblock->tm_mon, tblock->tm_mday, tblock->tm_hour, tblock->tm_min, tblock->tm_sec );
+	sprintf( sFN, "%s/stat_%04d%02d%02d_%02d%02d%02d.txt", logDir, tblock->tm_year + 1900, tblock->tm_mon + 1, tblock->tm_mday, tblock->tm_hour, tblock->tm_min, tblock->tm_sec );
 	if((fStat = fopen( sFN, "w" )) == NULL)
 	{
 		printf( "Cannot create statistics file. Termination.\n" );
@@ -372,13 +372,13 @@ void LogWrite( const char *msg, int Svrt )
 	time_t timer = time( NULL );
 	struct tm *tblock;
 	tblock = localtime( &timer );
-	printf( "%04d/%02d/%02d %02d:%02d:%02d %s\n", tblock->tm_year + 1900, tblock->tm_mon, tblock->tm_mday, tblock->tm_hour, tblock->tm_min, tblock->tm_sec, msg );
-	fprintf( fLog, "%04d/%02d/%02d %02d:%02d:%02d %s\n", tblock->tm_year + 1900, tblock->tm_mon, tblock->tm_mday, tblock->tm_hour, tblock->tm_min, tblock->tm_sec, msg );
+	printf( "%04d/%02d/%02d %02d:%02d:%02d %s\n", tblock->tm_year + 1900, tblock->tm_mon + 1, tblock->tm_mday, tblock->tm_hour, tblock->tm_min, tblock->tm_sec, msg );
+	fprintf( fLog, "%04d/%02d/%02d %02d:%02d:%02d %s\n", tblock->tm_year + 1900, tblock->tm_mon + 1, tblock->tm_mday, tblock->tm_hour, tblock->tm_min, tblock->tm_sec, msg );
 	fflush( fLog );
 
 	if(Svrt >= DEFAULT_ERRLOG_FILTER)
 	{
-		fprintf( fErrorLog, "%04d/%02d/%02d %02d:%02d:%02d %s\n", tblock->tm_year + 1900, tblock->tm_mon, tblock->tm_mday, tblock->tm_hour, tblock->tm_min, tblock->tm_sec, msg );
+		fprintf( fErrorLog, "%04d/%02d/%02d %02d:%02d:%02d %s\n", tblock->tm_year + 1900, tblock->tm_mon + 1, tblock->tm_mday, tblock->tm_hour, tblock->tm_min, tblock->tm_sec, msg );
 		fflush( fErrorLog );
 	}
 }
@@ -1435,7 +1435,7 @@ void writeStatistics()
 	tblock = localtime( &start_time );
 
 	fprintf( fStat, "%04d/%02d/%02d %02d:%02d:%02d  %4d %4d %4d\n",
-		tblock->tm_year + 1900, tblock->tm_mon, tblock->tm_mday, tblock->tm_hour, tblock->tm_min, tblock->tm_sec,
+		tblock->tm_year + 1900, tblock->tm_mon + 1, tblock->tm_mday, tblock->tm_hour, tblock->tm_min, tblock->tm_sec,
 		TotalChannels, stUnblocked, stUsed );
 	fflush( fStat );
 }

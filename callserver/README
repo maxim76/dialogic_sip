@@ -1,16 +1,26 @@
-CALL SERVER
+#CALL SERVER
 -----------
 Implements integration with Dialogic HMP and callflow processing.
 Provides CCAF/SSP functions.
 SCP/SDP functions are planned to be in external applications.
 
 
-Build dependencies
+#Build dependencies
 ------------------
-CentOS7: 
+##CentOS7 x64 build:
+Use HMP release 274
+yum install libstdc++.i686
+yum install redhat-lsb-core.i686
+
+yum install centos-release-scl
+yum install devtoolset-7.x86_64
+yum install gcc-c++-4.8.5-44.el7.x86_64
+yum install glibc-devel.i686
+
+##CentOS7 x32 build:
 - upgrade gcc to 4.8.x
 - install 32-bit libstdc++-devel.i686
 
-RHEL6:
+##RHEL6:
 - install devtoolset-2 and use it (source /opt/rh/devtoolset-2/enable)
 - instal 32-bit libstdc++-devel (yum install --nogpgcheck devtoolset-2-libstdc++-devel.i686)

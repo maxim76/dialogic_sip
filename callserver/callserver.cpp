@@ -885,7 +885,9 @@ void process_event()
 	if((metaevent.flags & GCME_GC_EVENT) != 0)
 	{
 		// Global Call Event
-		index = (int)metaevent.usrattr;
+		// Pass adress of channel info to gc_Open instead of int(lineNo) and avoid void* to int casting here
+		long long int userattr = reinterpret_cast<long long int>(metaevent.usrattr);
+		index = static_cast<int>(userattr);
 		evttype = metaevent.evttype;
 		TempCRN = metaevent.crn;
 		CallNdx = GetCallNdx( index, TempCRN );

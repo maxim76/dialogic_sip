@@ -27,7 +27,10 @@
 #include "callserver.hpp"
 #include "udp_request.hpp"
 #include "ssp_scp_interface.hpp"
-
+#include <zmq.h>
+#include <memory>
+#include "transport.hpp"
+#include "transport_zmq.hpp"
 
 #ifdef WIN32
 #pragma comment(lib, "libsrlmt.lib")
@@ -43,6 +46,7 @@ FILE *fLog;
 FILE *fErrorLog;
 FILE *fStat;
 UDPRequest *pUDPRequest;
+std::unique_ptr<transport::Transport> transport_ptr;
 
 int main( void )
 {
@@ -738,16 +742,70 @@ void InitNetwork()
 	}
 #endif
 
+	/*
 	pUDPRequest = new UDPRequest( scpIP, scpPort );
 	if(!pUDPRequest->ready())
 	{
 		fprintf( stderr, "UDPRequest initialization failed\n" );
 		exit( -1 );
 	}
+	*/
+
+	{
+		int major = 0;
+		int minor = 0;
+		int patch = 0;
+		zmq_version( &major, &minor, &patch );
+		char str[LOGSTRSIZE];
+		sprintf( str, "Current 0MQ version is : %d.%d.%d", major, minor, patch );
+
+		Log( TRC_CORE, TRC_INFO, -1, str );
+
+		/*
+		context = zmq.Context()
+
+		# Socket to send messages on
+		sender = context.socket(zmq.PUSH)
+		sender.bind("tcp://*:5557")
+
+		# Socket to receive messages on
+		receiver = context.socket(zmq.PULL)
+		receiver.bind("tcp://*:5558")
+
+		poller = zmq.Poller()
+		poller.register(sender, zmq.POLLOUT)
+		poller.register(receiver, zmq.POLLIN)
+		*/
+
+		//zmq::context_t context( 1 );
+		void *context = zmq_ctx_new();
+		char addr_str[256];
+
+		// Socket to send messages to SCP
+		void *mq_sender = zmq_socket( context, ZMQ_PUSH );
+#ifdef WIN32
+		sprintf_s( addr_str, sizeof( addr_str ), "tcp://%s:%d", scpIP, scpPort );
+#else
+		snprintf( addr_str, sizeof( addr_str ), "tcp://%s:%d", scpIP, scpPort );
+#endif
+		zmq_connect( mq_sender, addr_str );
+
+		// Socket to receive messages from SCP
+		void *mq_receiver = zmq_socket( context, ZMQ_PULL );
+#ifdef WIN32
+		sprintf_s( addr_str, sizeof( addr_str ), "tcp://%s:%d", scpIP, scpPort );
+#else
+		snprintf( addr_str, sizeof( addr_str ), "tcp://%s:%d", scpIP, scpPort );
+#endif
+		zmq_connect( mq_receiver, addr_str );
+	}
+	//transport_ptr.reset( new transport::TransportZMQ() );
+	transport_ptr = transport::createTransportZMQ();
 }
 //---------------------------------------------------------------------------
 void processNetwork()
 {
+	/*
 	pUDPRequest->update();
 	bool isTimeout;
 	unsigned int req_id;
@@ -771,6 +829,7 @@ void processNetwork()
 			InitDisconnect( req_id );
 		}
 	}
+	*/
 }
 //---------------------------------------------------------------------------
 bool processPacket(unsigned int channel, const char *data, size_t len)
@@ -989,7 +1048,8 @@ void process_event()
 				size_t filledSize;
 				messageOffered.pack( buffer, MAX_DATAGRAM_SIZE, &filledSize );
 				Log(TRC_CORE, TRC_DUMP, index, "process_event() : Send Offered event to SCP (%u bytes)", filledSize);
-				pUDPRequest->send( index, buffer, filledSize );
+				//pUDPRequest->send( index, buffer, filledSize );
+				transport_ptr->send( index, buffer, filledSize );
 				break;
 			default:	// other modes, that requires connection
 				if(SendCallAck > 0)
@@ -1334,13 +1394,13 @@ int GetSIPRdPN( GC_PARM_BLK	*paramblkp, std::string & RdPN, std::string & reason
 void RegNewCall( int LineNo, CRN crn, int State )
 {
 	int i;
-	// Вытолкнуть имеющиеся вызовы на позицию вглубь
+	// Р’С‹С‚РѕР»РєРЅСѓС‚СЊ РёРјРµСЋС‰РёРµСЃСЏ РІС‹Р·РѕРІС‹ РЅР° РїРѕР·РёС†РёСЋ РІРіР»СѓР±СЊ
 	for(i = MAX_CALLS - 1; i > 0; i--)
 	{
 		ChannelInfo[LineNo].Calls[i].crn = ChannelInfo[LineNo].Calls[i - 1].crn;
 		ChannelInfo[LineNo].Calls[i].SState = ChannelInfo[LineNo].Calls[i - 1].SState;
 	}
-	// Новый вызов записать в нулевую позицию
+	// РќРѕРІС‹Р№ РІС‹Р·РѕРІ Р·Р°РїРёСЃР°С‚СЊ РІ РЅСѓР»РµРІСѓСЋ РїРѕР·РёС†РёСЋ
 	ChannelInfo[LineNo].Calls[0].crn = crn;
 	ChannelInfo[LineNo].Calls[0].SState = State;
 }

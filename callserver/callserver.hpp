@@ -56,6 +56,10 @@
 #define PRM_SCPPORT			13
 #define PRM_IPTDEVICESCNT	14
 //---------------------------------------------------------------------------
+// Working modes
+#define MODE_AUTORESPONDER	0
+#define MODE_SSP			1
+//---------------------------------------------------------------------------
 #define DEFAULT_ERRLOG_FILTER	TRC_ERROR
 #define DEFAULT_CHANNELSCNT		2
 #define DEFAULT_FIRSTCHANNEL	0
@@ -63,7 +67,7 @@
 #define DEFAULT_SEVERITYFILTER	0
 #define DEFAULT_SENDCALLACK		0
 #define DEFAULT_SENDACM			0
-#define DEFAULT_MODE			0
+#define DEFAULT_MODE			MODE_AUTORESPONDER
 #define DEFAULT_FRAGMENT		"hello.wav"
 #define DEFAULT_SCPIP			"127.0.0.1"
 #define DEFAULT_SCPPORT			10000
@@ -119,13 +123,13 @@ static const char GcEventNames[MAXGCEVENT][GCEVENTNAMESIZE] = {
 #define DXEVENTNAMESIZE	32
 static const char DxEventNames[MAXDXEVENT][DXEVENTNAMESIZE] = { "TDX_PLAY","TDX_RECORD","TDX_GETDIGIT","TDX_DIAL","TDX_CALLP","TDX_CST","TDX_SETHOOK","TDX_WINK","X","TDX_PLAYTONE" };
 //---------------------------------------------------------------------------
-typedef struct {   /////// Дескриптор вызова
+typedef struct {   /////// Р”РµСЃРєСЂРёРїС‚РѕСЂ РІС‹Р·РѕРІР°
 	CRN crn;
 	int SState;
 } T_CALL_INFO;
 
-typedef struct {   /////// Дескриптор ресурса
-	int N;   // хранит индекс массива. Нужно для случая когда приходит указатель на элемент массива и нужно узнать этот индекс
+typedef struct {   /////// Р”РµСЃРєСЂРёРїС‚РѕСЂ СЂРµСЃСѓСЂСЃР°
+	int N;   // С…СЂР°РЅРёС‚ РёРЅРґРµРєСЃ РјР°СЃСЃРёРІР°. РќСѓР¶РЅРѕ РґР»СЏ СЃР»СѓС‡Р°СЏ РєРѕРіРґР° РїСЂРёС…РѕРґРёС‚ СѓРєР°Р·Р°С‚РµР»СЊ РЅР° СЌР»РµРјРµРЅС‚ РјР°СЃСЃРёРІР° Рё РЅСѓР¶РЅРѕ СѓР·РЅР°С‚СЊ СЌС‚РѕС‚ РёРЅРґРµРєСЃ
 	int hdVoice;
 	int hdDti;
 	LINEDEV hdLine;
@@ -135,9 +139,9 @@ typedef struct {   /////// Дескриптор ресурса
 	char CgPN[MAX_NUMSIZE];
 	char CdPN[MAX_NUMSIZE];
 	char RdPN[MAX_NUMSIZE];
-	int reasonCode;	// Причина переадресации
-	int blocked;    // Линия разблокирована/заблокирована
-	int VReady;     // признак готовности голосового ресурса. Будет использватся перед WaitCall т.к. обнаружено что иногде на срабатывает GetRecourceH
+	int reasonCode;	// РџСЂРёС‡РёРЅР° РїРµСЂРµР°РґСЂРµСЃР°С†РёРё
+	int blocked;    // Р›РёРЅРёСЏ СЂР°Р·Р±Р»РѕРєРёСЂРѕРІР°РЅР°/Р·Р°Р±Р»РѕРєРёСЂРѕРІР°РЅР°
+	int VReady;     // РїСЂРёР·РЅР°Рє РіРѕС‚РѕРІРЅРѕСЃС‚Рё РіРѕР»РѕСЃРѕРІРѕРіРѕ СЂРµСЃСѓСЂСЃР°. Р‘СѓРґРµС‚ РёСЃРїРѕР»СЊР·РІР°С‚СЃСЏ РїРµСЂРµРґ WaitCall С‚.Рє. РѕР±РЅР°СЂСѓР¶РµРЅРѕ С‡С‚Рѕ РёРЅРѕРіРґРµ РЅР° СЃСЂР°Р±Р°С‚С‹РІР°РµС‚ GetRecourceH
 	DX_IOTT iott;
 	DX_XPB  xpb;
 	DV_DIGIT  digbuf;

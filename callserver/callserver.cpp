@@ -27,7 +27,6 @@
 #include "callserver.hpp"
 #include "udp_request.hpp"
 #include "ssp_scp_interface.hpp"
-#include <zmq.h>
 #include <memory>
 #include "transport.hpp"
 #include "transport_zmq.hpp"
@@ -742,81 +741,22 @@ void InitNetwork()
 	}
 #endif
 
-	/*
-	pUDPRequest = new UDPRequest( scpIP, scpPort );
-	if(!pUDPRequest->ready())
-	{
-		fprintf( stderr, "UDPRequest initialization failed\n" );
-		exit( -1 );
+	if (Mode == MODE_SSP) {
+		transport_ptr = transport::createTransportZMQ();
 	}
-	*/
-
-	{
-		int major = 0;
-		int minor = 0;
-		int patch = 0;
-		zmq_version( &major, &minor, &patch );
-		char str[LOGSTRSIZE];
-		sprintf( str, "Current 0MQ version is : %d.%d.%d", major, minor, patch );
-
-		Log( TRC_CORE, TRC_INFO, -1, str );
-
-		/*
-		context = zmq.Context()
-
-		# Socket to send messages on
-		sender = context.socket(zmq.PUSH)
-		sender.bind("tcp://*:5557")
-
-		# Socket to receive messages on
-		receiver = context.socket(zmq.PULL)
-		receiver.bind("tcp://*:5558")
-
-		poller = zmq.Poller()
-		poller.register(sender, zmq.POLLOUT)
-		poller.register(receiver, zmq.POLLIN)
-		*/
-
-		//zmq::context_t context( 1 );
-		void *context = zmq_ctx_new();
-		char addr_str[256];
-
-		// Socket to send messages to SCP
-		void *mq_sender = zmq_socket( context, ZMQ_PUSH );
-#ifdef WIN32
-		sprintf_s( addr_str, sizeof( addr_str ), "tcp://%s:%d", scpIP, scpPort );
-#else
-		snprintf( addr_str, sizeof( addr_str ), "tcp://%s:%d", scpIP, scpPort );
-#endif
-		zmq_connect( mq_sender, addr_str );
-
-		// Socket to receive messages from SCP
-		void *mq_receiver = zmq_socket( context, ZMQ_PULL );
-#ifdef WIN32
-		sprintf_s( addr_str, sizeof( addr_str ), "tcp://%s:%d", scpIP, scpPort );
-#else
-		snprintf( addr_str, sizeof( addr_str ), "tcp://%s:%d", scpIP, scpPort );
-#endif
-		zmq_connect( mq_receiver, addr_str );
-	}
-	//transport_ptr.reset( new transport::TransportZMQ() );
-	transport_ptr = transport::createTransportZMQ();
 }
 //---------------------------------------------------------------------------
 void processNetwork()
 {
-	/*
-	pUDPRequest->update();
 	bool isTimeout;
 	unsigned int req_id;
 	char data[MAX_DATAGRAM_SIZE];
 	size_t len;
 
-	while(pUDPRequest->recv( &req_id, &isTimeout, data, &len ))
-	{
-		if(!isTimeout)
+	while (transport_ptr->recv(&req_id, &isTimeout, data, &len)) {
+		if (!isTimeout)
 		{
-			Log( TRC_CORE, TRC_DUMP, req_id, "processNetwork() : Recv from SCP (%u bytes)", len );
+			Log(TRC_CORE, TRC_DUMP, req_id, "processNetwork() : Recv from SCP (%u bytes)", len);
 			if (!processPacket(req_id, data, len))
 			{
 				Log(TRC_CORE, TRC_WARNING, req_id, "processNetwork() : processPacket failed");
@@ -825,11 +765,10 @@ void processNetwork()
 		}
 		else
 		{
-			Log( TRC_CORE, TRC_WARNING, req_id, "processNetwork() : Request timeout" );
-			InitDisconnect( req_id );
+			Log(TRC_CORE, TRC_WARNING, req_id, "processNetwork() : Request timeout");
+			InitDisconnect(req_id);
 		}
 	}
-	*/
 }
 //---------------------------------------------------------------------------
 bool processPacket(unsigned int channel, const char *data, size_t len)

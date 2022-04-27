@@ -14,7 +14,7 @@ consoleHandler.setFormatter(formatter)
 logger.addHandler(consoleHandler)
 
 
-def Process(data):
+def Process(data, receiver):
     logger.info("onRequestReceived :")
 
     if len(data) == 0:
@@ -30,7 +30,12 @@ def Process(data):
         else:
             logger.debug("onRequestReceived : GCEV_OFFERED")
             logger.debug(event)
-            # print params
+
+            # Drop the call
+            response = scp_interface.CallServerCommand.dropCall(1234)
+            logger.debug("onOffered : sending command DROP with reason %d" % 1234)
+            receiver.send(response)
+
     else:
         logger.error("onRequestReceived : Unhandled event code %d" % data[0])
 
@@ -39,14 +44,16 @@ def Process(data):
 context = zmq.Context()
 
 # Socket to receive messages on
-receiver = context.socket(zmq.PULL)
-#receiver.connect("tcp://localhost:5557")
-receiver.bind("tcp://*:5558")
+#receiver = context.socket(zmq.PULL)
+#receiver.bind("tcp://*:5558")
+receiver = context.socket(zmq.REP)
+receiver.connect("tcp://localhost:5558")
 
 # Socket to send messages to
-sender = context.socket(zmq.PUSH)
-#sender.connect("tcp://localhost:5558")
-sender.bind("tcp://*:5557")
+#sender = context.socket(zmq.PUSH)
+#sender.bind("tcp://*:5557")
+sender = context.socket(zmq.REQ)
+sender.connect("tcp://localhost:5557")
 
 poller = zmq.Poller()
 #poller.register(sender, zmq.POLLOUT)
@@ -64,4 +71,4 @@ while True:
     if socks.get(receiver) == zmq.POLLIN:
         message = receiver.recv()
         logger.info("Received message from network")
-        Process(message)
+        Process(message, receiver)

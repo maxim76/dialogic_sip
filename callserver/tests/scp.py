@@ -1,6 +1,7 @@
 import logging
 import sys
 import time
+import struct
 import zmq
 
 import scp_interface
@@ -15,16 +16,18 @@ logger.addHandler(consoleHandler)
 
 
 def Process(data, receiver):
-    logger.info("onRequestReceived :")
-
-    if len(data) == 0:
-        logger.error("Malformed request")
+    if len(data) <= 8:
+        logger.error("onRequestReceived : Malformed request")
         return
 
+    requestID = struct.unpack('I', data[0:4])[0]
+    sessionID = struct.unpack('I', data[4:8])[0]
+    logger.error("onRequestReceived : requestID [%d]  sessionID [%d]" % (requestID, sessionID))
+    
     # get event type and call corresponding handler
-    if data[0] == scp_interface.CallServerEvents.GCEV_OFFERED:
+    if data[8] == scp_interface.CallServerEvents.GCEV_OFFERED:
         event = scp_interface.EvOffered()
-        if not event.unpack(data[1:]):
+        if not event.unpack(data[9:]):
             logger.error("onRequestReceived : Malformed request")
             return
         else:

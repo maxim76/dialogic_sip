@@ -47,6 +47,19 @@ FILE *fStat;
 UDPRequest *pUDPRequest;
 std::unique_ptr<transport::Transport> transport_ptr;
 
+class Session {
+public:
+	// TODO: тип результата сделать SessionID, который будет перенесен из transport.hpp в отлельный h-файл
+	// TODO: сделать сессию уникальной даже если работает несколько приложений и на нескольких хостах
+	static uint32_t getNewSessionID() {
+		return lastSession++;
+	}
+private:
+	static uint32_t lastSession;
+};
+
+uint32_t Session::lastSession = 0;
+
 int main( void )
 {
 	time( &start_time );
@@ -988,7 +1001,7 @@ void process_event()
 				messageOffered.pack( buffer, MAX_DATAGRAM_SIZE, &filledSize );
 				Log(TRC_CORE, TRC_DUMP, index, "process_event() : Send Offered event to SCP (%u bytes)", filledSize);
 				//pUDPRequest->send( index, buffer, filledSize );
-				transport_ptr->send( index, buffer, filledSize );
+				transport_ptr->send(Session::getNewSessionID(), buffer, filledSize);
 				break;
 			default:	// other modes, that requires connection
 				if(SendCallAck > 0)

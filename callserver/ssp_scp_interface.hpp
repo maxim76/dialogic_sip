@@ -1,3 +1,15 @@
+#pragma once
+
+#include <sstream>
+#include <string>
+
+/*
+TODO:
+1. Вынести реализация в cpp
+2. Базовый класс для SCP и SSP сообщений с виртуальными pack/unpack
+3. Юниттесты
+*/
+
 namespace ssp_scp
 {
 	typedef unsigned short RedirectionReason;
@@ -6,7 +18,7 @@ namespace ssp_scp
 enum SSPEventCodes
 {
 	OFFERED = 0,
-	ANSWERED
+	ANSWERED = 1
 };
 
 struct SSPEvent
@@ -21,7 +33,7 @@ struct Offered
 	char CdPN[MAX_NUMSIZE];
 	char RdPN[MAX_NUMSIZE];
 	RedirectionReason redirectionReason;
-	bool pack( char *buffer, size_t bufferSize, size_t *filledSize )
+	bool pack( char *buffer, size_t bufferSize, size_t *filledSize ) const
 	{
 		size_t lenCgPN = strlen( CgPN );
 		size_t lenCdPN = strlen( CdPN );
@@ -58,14 +70,24 @@ struct Offered
 	}
 };
 
+
 enum SCPCommandCodes
 {
-	CMD_DROP = 0
+	CMD_DROP = 0,
+	CMD_ANSWER = 1,
+	CMD_PLAY = 2
 };
 
+
+/*
+* TODO: Refactor
+* 1. SCPCommand вызывает свой невиртуальный unpack, который декодирует код команды а затем вызывает полиморфный Deserialize
+* 2. возможно стоит сделать конструктор, который принимает стрим и создает уже десериализированный экземпляр? Или это статик метод - фабрика классов
+*/
 struct SCPCommand
 {
 	unsigned char commandCode;
+	virtual bool unpack(std::istream& in) {};
 };
 
 struct CmdDrop
@@ -73,5 +95,18 @@ struct CmdDrop
 	SCPCommand scpCommand;
 	RedirectionReason reason;
 };
+
+struct CmdPlay : SCPCommand
+{
+	std::string fragmentName;
+	bool unpack(std::istream& in) override {
+		uint16_t size;
+		std::string str;
+		in.read(reinterpret_cast<char*>(&size), sizeof(size));
+		fragmentName.resize(size);
+		in.read(&(fragmentName[0]), size);
+	}
+};
+
 
 };

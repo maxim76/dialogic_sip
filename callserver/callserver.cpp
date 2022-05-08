@@ -22,6 +22,8 @@
 #endif
 
 #include <algorithm>
+#include <cstdint>
+#include <sstream>
 #include <unordered_map>
 
 #include "callserver.hpp"
@@ -786,6 +788,7 @@ void processNetwork()
 //---------------------------------------------------------------------------
 bool processPacket(unsigned int channel, const char *data, size_t len)
 {
+	/*
 	ssp_scp::SCPCommand *scpCommand;
 	if (len < sizeof(ssp_scp::SSPEvent))
 	{
@@ -793,7 +796,18 @@ bool processPacket(unsigned int channel, const char *data, size_t len)
 		return false;
 	}
 	scpCommand = (ssp_scp::SCPCommand *)data;
-	switch (scpCommand->commandCode)
+	*/
+	if (len < sizeof(ssp_scp::SCPCommand::commandCode))
+	{
+		Log(TRC_CORE, TRC_ERROR, channel, "processPacket() : Packet size %u is too short to read SCPCommand code", len);
+		return false;
+	}
+	uint8_t scpCommandCode = data[0];
+	Log(TRC_CORE, TRC_INFO, channel, "processPacket() : received command with code %d", scpCommandCode);
+
+	std::istringstream payload(std::string(&data[1], len - 1));
+	//switch (scpCommand->commandCode)
+	switch (scpCommandCode)
 	{
 	case ssp_scp::SCPCommandCodes::CMD_DROP:
 	{
@@ -808,8 +822,35 @@ bool processPacket(unsigned int channel, const char *data, size_t len)
 		InitDisconnect(channel, reasonCodeDialogic);
 	}
 		break;
+	case ssp_scp::SCPCommandCodes::CMD_ANSWER:
+		if (SendACM > 0)
+		{
+			int ret = gc_AcceptCall(ChannelInfo[channel].Calls[0].crn, 0, EV_ASYNC);
+			LogFunc(channel, "gc_AcceptCall()", ret);
+		}
+		else
+		{
+			int ret = gc_AnswerCall(ChannelInfo[channel].Calls[0].crn, 0, EV_ASYNC);
+			LogFunc(channel, "gc_AnswerCall()", ret);
+		}
+
+		break;
+	case ssp_scp::SCPCommandCodes::CMD_PLAY:
+	{
+		ssp_scp::CmdPlay cmdPlay;
+		cmdPlay.unpack(payload);
+		Log(TRC_CORE, TRC_INFO, channel, "processPacket() : received command PLAY with fragment [%s]", cmdPlay.fragmentName.c_str());
+		if (!InitPlayFragment(channel, cmdPlay.fragmentName.c_str()))
+		{
+			// TODO: че делать тут если не удалось начать воспр-е? Наверное отправить ошибку на SCP и ждать
+			Log(TRC_CORE, TRC_INFO, channel, "processPacket() : Cannot ititiate playback");
+		}
+		break;
+
+	}
+		break;
 	default:
-		Log(TRC_CORE, TRC_ERROR, channel, "processPacket() : Unknown command %u", scpCommand->commandCode);
+		Log(TRC_CORE, TRC_ERROR, channel, "processPacket() : Unknown command %u", scpCommandCode);
 		return false;
 	}
 	return true;
@@ -1071,6 +1112,19 @@ void process_event()
 						ret = gc_DropCall( TempCRN, GC_NORMAL_CLEARING, EV_ASYNC );
 						LogFunc( index, "gc_DropCall()", ret );
 					}
+					break;
+				case 1:		// SSP
+				{
+					ssp_scp::SSPEvent messageAnswered;
+					messageAnswered.eventCode = ssp_scp::SSPEventCodes::ANSWERED;
+					// TODO: использовать Serialize для заполнения буфера к отправке вместо ручного формирования
+					char buffer[1];
+					buffer[0] = messageAnswered.eventCode;
+					size_t filledSize = 1;
+					Log(TRC_CORE, TRC_DUMP, index, "process_event() : Send Answered event to SCP (%u bytes)", filledSize);
+					// TODO: продолжить использовать прежнюю сессию
+					transport_ptr->send(Session::getNewSessionID(), buffer, filledSize);
+				}
 					break;
 				default:
 					Log( TRC_CORE, TRC_ERROR, index, "Misconfiguration: unsupported Mode" );

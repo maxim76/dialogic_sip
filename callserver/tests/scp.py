@@ -22,10 +22,12 @@ def Process(data, receiver):
 
     requestID = struct.unpack('I', data[0:4])[0]
     sessionID = struct.unpack('I', data[4:8])[0]
-    logger.error("onRequestReceived : requestID [%d]  sessionID [%d]" % (requestID, sessionID))
+    #command = struct.unpack('B', data[8])[0]
+    command = data[8]
+    logger.info("onRequestReceived : requestID [%d]  sessionID [%d] command code [%d]" % (requestID, sessionID, command))
     
     # get event type and call corresponding handler
-    if data[8] == scp_interface.CallServerEvents.GCEV_OFFERED:
+    if command == scp_interface.CallServerEvents.GCEV_OFFERED:
         event = scp_interface.EvOffered()
         if not event.unpack(data[9:]):
             logger.error("onRequestReceived : Malformed request")
@@ -34,11 +36,28 @@ def Process(data, receiver):
             logger.debug("onRequestReceived : GCEV_OFFERED")
             logger.debug(event)
 
+            # Answer the call
+            response = scp_interface.CallServerCommand.answerCall()
+            logger.debug("onOffered : sending command ANSWER")
+            receiver.send(response)
+
+            '''
             # Drop the call
             response = scp_interface.CallServerCommand.dropCall(1234)
             logger.debug("onOffered : sending command DROP with reason %d" % 1234)
             receiver.send(response)
+            
+            # Play file
+            response = scp_interface.CallServerCommand.playFragment("ussr.wav")
+            logger.debug("onOffered : sending command PLAY")
+            receiver.send(response)
+            '''
 
+    elif command == scp_interface.CallServerEvents.GCEV_ANSWERED:
+        # Play file
+        response = scp_interface.CallServerCommand.playFragment("ussr.wav")
+        logger.debug("onOffered : sending command PLAY")
+        receiver.send(response)
     else:
         logger.error("onRequestReceived : Unhandled event code %d" % data[0])
 

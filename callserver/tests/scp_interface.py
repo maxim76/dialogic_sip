@@ -1,3 +1,6 @@
+"""
+TODO: move to common place for access from tests and scp?
+"""
 import struct
 
 class CallServerEvents:
@@ -7,9 +10,12 @@ class CallServerEvents:
     GCEV_DISCONNECTED = 3
     GCEV_DROPCALL = 4
 
+"""
 class CallServerCommands:
     CMD_DROP = 0
-
+    CMD_PLAY = 1
+"""
+class StreamReadException(Exception): pass
 class EvOffered:
     def __init__(self):
         self.CgPN=''
@@ -18,24 +24,33 @@ class EvOffered:
         self.reason=0
 
     def unpack(self, data):
-        # read CgPN
-        paramPtr = 0
-        paramLen = data[paramPtr]
-        self.CgPN = data[paramPtr+1:paramPtr+1+paramLen].decode()
-        # read CdPN
-        paramPtr += paramLen + 1
-        paramLen = data[paramPtr]
-        self.CdPN = data[paramPtr+1:paramPtr+1+paramLen].decode()
-        # read RdPN
-        paramPtr += paramLen + 1
-        paramLen = data[paramPtr]
-
-        self.RdPN = data[paramPtr+1:paramPtr+1+paramLen].decode()
-        # read reason
-        paramPtr += paramLen + 1
-        self.reason = struct.unpack('H', data[paramPtr:paramPtr+2])[0]
+        try:
+            paramPtr = 0
+            self.CgPN, paramPtr = self.readStr(data, paramPtr)
+            self.CdPN, paramPtr = self.readStr(data, paramPtr)
+            self.RdPN, paramPtr = self.readStr(data, paramPtr)
+            self.reason, paramPtr = self.read2Bytes(data, paramPtr)
+        except StreamReadException:
+            return False
 
         return True
+
+    """
+    Read param len from buffer starting at data[paramPtr], then read len chars from buffer.
+    Return string that was read and next paramPtr.
+    Exception if buffer does not have enough data
+    """
+    @staticmethod
+    def readStr(data, paramPtr):
+        if paramPtr >= len(data): raise StreamReadException()
+        paramLen = data[paramPtr]
+        if len(data) < paramPtr+1+paramLen: raise StreamReadException()
+        return (data[paramPtr+1:paramPtr+1+paramLen].decode(), paramPtr+1+paramLen)
+
+    @staticmethod
+    def read2Bytes(data, paramPtr):
+        if len(data) < paramPtr + 2: raise StreamReadException()
+        return (struct.unpack('H', data[paramPtr:paramPtr+2])[0], paramPtr + 3)
 
     @staticmethod
     def pack(CgPN, CdPN, RdPN, reason):
@@ -56,6 +71,8 @@ class EvOffered:
 class CallServerCommand:
 
     CMD_DROP = 0
+    CMD_ANSWER = 1
+    CMD_PLAY = 2
 
     @staticmethod
     def dropCall(reason):
@@ -64,9 +81,24 @@ class CallServerCommand:
         data += struct.pack('H', reason)
         return data
 
+    @staticmethod
+    def answerCall():
+        data = bytearray()
+        data += struct.pack('B', CallServerCommand.CMD_ANSWER)
+        return data
+
+    @staticmethod
+    def playFragment(fragment):
+        data = bytearray()
+        data += struct.pack('B', CallServerCommand.CMD_PLAY)
+        data += struct.pack('H', len(fragment))
+        data += fragment.encode()
+        return data
+    
 
 # Unittest
 if __name__=="__main__":
+    # Offered
     CgPN = '+79161111111'
     CdPN = '+79162222222'
     RdPN = '+79163333333'
@@ -82,3 +114,13 @@ if __name__=="__main__":
     assert(CdPN == evOffered.CdPN)
     assert(RdPN == evOffered.RdPN)
     assert(reason == evOffered.reason)
+
+    # Play
+    print("\nTest2: Play")
+    fragmentName = "test_fragment.wav"
+    serialized = CallServerCommand.playFragment(fragmentName)
+    print(serialized)
+    assert(serialized[0] == CallServerCommand.CMD_PLAY)
+    assert(serialized[1] + serialized[2] * 256 == len(fragmentName))
+    assert(serialized[3:] == fragmentName.encode())
+    

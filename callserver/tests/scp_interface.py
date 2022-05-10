@@ -9,6 +9,7 @@ class CallServerEvents:
     GCEV_CONNECTED = 2
     GCEV_DISCONNECTED = 3
     GCEV_DROPCALL = 4
+    PLAY_FINISHED = 5
 
 """
 class CallServerCommands:

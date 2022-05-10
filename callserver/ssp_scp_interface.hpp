@@ -1,6 +1,7 @@
 #pragma once
 
 #include <sstream>
+#include <cstring>	// strlen
 #include <string>
 
 /*
@@ -8,30 +9,50 @@ TODO:
 1. Вынести реализация в cpp
 2. Базовый класс для SCP и SSP сообщений с виртуальными pack/unpack
 3. Юниттесты
+4. Заменить типы данных CxPN на стринги и избавится от define MAX_NUMSIZE
 */
+#define SSP_SCP_MAX_NUMSIZE	128		// Временно. Должно быть эквивалентно MAX_NUMSIZE из callserver.hpp
 
 namespace ssp_scp
 {
-	typedef unsigned short RedirectionReason;
+// Классы реализующие этот интерфейс могут сериализоваться в поток (используется для передачи по сети)
+class ISerializable {
+public:
+	virtual void serialize(std::ostream& out) const = 0;
+};
+
+typedef unsigned short RedirectionReason;
 #pragma pack(1)
 
 enum SSPEventCodes
 {
 	OFFERED = 0,
-	ANSWERED = 1
+	ANSWERED,
+	CONNECTED,
+	DISCONNECTED,
+	DROPCALL,
+	PLAY_FINISHED
 };
 
-struct SSPEvent
+class SSPEvent
 {
+public:
+	SSPEvent(unsigned char eventCode) : eventCode_(eventCode) {}
+
+	const unsigned char eventCode_;
+};
+
+struct SSPEvent2 {
 	unsigned char eventCode;
 };
-static_assert(MAX_NUMSIZE < 256, "String field size must fit 1 byte");
+
+static_assert(SSP_SCP_MAX_NUMSIZE < 256, "String field size must fit 1 byte");
 struct Offered
 {
-	SSPEvent sspEvent;
-	char CgPN[MAX_NUMSIZE];
-	char CdPN[MAX_NUMSIZE];
-	char RdPN[MAX_NUMSIZE];
+	SSPEvent2 sspEvent;
+	char CgPN[SSP_SCP_MAX_NUMSIZE];
+	char CdPN[SSP_SCP_MAX_NUMSIZE];
+	char RdPN[SSP_SCP_MAX_NUMSIZE];
 	RedirectionReason redirectionReason;
 	bool pack( char *buffer, size_t bufferSize, size_t *filledSize ) const
 	{
@@ -70,6 +91,22 @@ struct Offered
 	}
 };
 
+
+class SSPEventOnPlayFinished : public SSPEvent, public ISerializable {
+public:
+	SSPEventOnPlayFinished(int result) : 
+		SSPEvent(SSPEventCodes::PLAY_FINISHED),
+		result_(result)
+	{}
+
+	void serialize(std::ostream& out) const override {
+		out.write(reinterpret_cast<const char*>(&eventCode_), sizeof(eventCode_));
+		out.write(reinterpret_cast<const char*>(&result_), sizeof(result_));
+	}
+
+private:
+	int result_;
+};
 
 enum SCPCommandCodes
 {

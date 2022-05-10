@@ -1029,7 +1029,7 @@ void process_event()
 			LogGC( TRC_INFO, index, evttype, str );
 			switch(Mode)
 			{
-			case 1:		// SSP mode. Send informing to SCP
+			case MODE_SSP:		// SSP mode. Send informing to SCP
 				ssp_scp::Offered messageOffered;
 				messageOffered.sspEvent.eventCode = ssp_scp::SSPEventCodes::OFFERED;
 				strncpy( messageOffered.CgPN, ChannelInfo[index].CgPN, MAX_NUMSIZE );
@@ -1105,7 +1105,7 @@ void process_event()
 				ChannelInfo[index].Calls[CallNdx].SState = GCST_CONNECTED;
 				switch(Mode)
 				{
-				case 0:
+				case MODE_AUTORESPONDER:
 					Log( TRC_CORE, TRC_INFO, index, "Mode : 0 (Autoresponder). Default fragment will be played" );
 					if(!InitPlayFragment( index, defaultFragment ))
 					{
@@ -1113,9 +1113,9 @@ void process_event()
 						LogFunc( index, "gc_DropCall()", ret );
 					}
 					break;
-				case 1:		// SSP
+				case MODE_SSP:
 				{
-					ssp_scp::SSPEvent messageAnswered;
+					ssp_scp::SSPEvent2 messageAnswered;
 					messageAnswered.eventCode = ssp_scp::SSPEventCodes::ANSWERED;
 					// TODO: использовать Serialize для заполнения буфера к отправке вместо ручного формирования
 					char buffer[1];
@@ -1284,19 +1284,23 @@ void process_event()
 			}
 			else
 			{
+				switch(Mode) {
+				case MODE_AUTORESPONDER:
+					InitDisconnect(index);
+					break;
+				case MODE_SSP:
+					ssp_scp::SSPEventOnPlayFinished onPlayFinished(ATDX_TERMMSK(hdDev));
+					Log(TRC_CORE, TRC_DUMP, index, "process_event() : Send onPlayFinished event to SCP");
+					// TODO: продолжить использовать прежнюю сессию
+					transport_ptr->send(Session::getNewSessionID(), onPlayFinished);
+
+					break;
+				}
+				/*
+				* этот блок был до разделения на Autoresponder/SSP
 				switch(ChannelInfo[index].PState)
 				{
 				case PST_PLAY:
-					/*
-					ret = dx_play( ChannelInfo[index].hdVoice, &ChannelInfo[index].iott, NULL, RM_SR8 | EV_ASYNC );
-					LogFunc( index, "dx_play()", ret );
-					if(ret != GC_SUCCESS)
-					{
-						close( ChannelInfo[index].iott.io_fhandle );
-						ret = gc_DropCall( ChannelInfo[index].Calls[0].crn, GC_NORMAL_CLEARING, EV_ASYNC );
-						LogFunc( index, "gc_DropCall()", ret );
-					}
-					*/
 					InitDisconnect( index );
 					break;
 				default:
@@ -1304,10 +1308,8 @@ void process_event()
 					LogFunc( index, "close()", ret );
 					ChannelInfo[index].iott.io_fhandle = -1;
 					ChannelInfo[index].VState = VST_IDLE;
-					//ChannelInfo[index].PState = PST_IDLE;
-						//ret = gc_DropCall(ChannelInfo[index].Calls[0].crn,GC_NORMAL_CLEARING,EV_ASYNC);
-					//LogFunc(index, "gc_DropCall()", ret);
 				}
+				*/
 			}
 			break;
 		case TDX_GETDIG:

@@ -78,6 +78,7 @@ poller.register(receiver, zmq.POLLIN)
 
 requests_cnt = 0
 
+logger.info("SCP Started")
 # Process tasks forever
 while True:
     try:

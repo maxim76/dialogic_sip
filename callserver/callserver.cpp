@@ -1029,20 +1029,12 @@ void process_event()
 			LogGC( TRC_INFO, index, evttype, str );
 			switch(Mode)
 			{
-			case MODE_SSP:		// SSP mode. Send informing to SCP
-				ssp_scp::Offered messageOffered;
-				messageOffered.sspEvent.eventCode = ssp_scp::SSPEventCodes::OFFERED;
-				strncpy( messageOffered.CgPN, ChannelInfo[index].CgPN, MAX_NUMSIZE );
-				strncpy( messageOffered.CdPN, ChannelInfo[index].CdPN, MAX_NUMSIZE );
-				strncpy( messageOffered.RdPN, ChannelInfo[index].RdPN, MAX_NUMSIZE );
-				messageOffered.redirectionReason = reasonCodeIP;
-
-				char buffer[MAX_DATAGRAM_SIZE];
-				size_t filledSize;
-				messageOffered.pack( buffer, MAX_DATAGRAM_SIZE, &filledSize );
-				Log(TRC_CORE, TRC_DUMP, index, "process_event() : Send Offered event to SCP (%u bytes)", filledSize);
-				//pUDPRequest->send( index, buffer, filledSize );
-				transport_ptr->send(Session::getNewSessionID(), buffer, filledSize);
+			case MODE_SSP:
+			{
+				ssp_scp::SSPEventOffered messageOffered(ChannelInfo[index].CgPN, ChannelInfo[index].CdPN, ChannelInfo[index].RdPN, reasonCodeIP);
+				Log(TRC_CORE, TRC_DUMP, index, "process_event() : Send Offered event to SCP");
+				transport_ptr->send(Session::getNewSessionID(), messageOffered);
+			}
 				break;
 			default:	// other modes, that requires connection
 				if(SendCallAck > 0)
@@ -1115,15 +1107,8 @@ void process_event()
 					break;
 				case MODE_SSP:
 				{
-					ssp_scp::SSPEvent2 messageAnswered;
-					messageAnswered.eventCode = ssp_scp::SSPEventCodes::ANSWERED;
-					// TODO: использовать Serialize для заполнения буфера к отправке вместо ручного формирования
-					char buffer[1];
-					buffer[0] = messageAnswered.eventCode;
-					size_t filledSize = 1;
-					Log(TRC_CORE, TRC_DUMP, index, "process_event() : Send Answered event to SCP (%u bytes)", filledSize);
-					// TODO: продолжить использовать прежнюю сессию
-					transport_ptr->send(Session::getNewSessionID(), buffer, filledSize);
+					Log(TRC_CORE, TRC_DUMP, index, "process_event() : Send Answered event to SCP");
+					transport_ptr->send(Session::getNewSessionID(), ssp_scp::SSPEventAnswered());
 				}
 					break;
 				default:

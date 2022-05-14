@@ -30,7 +30,7 @@ def Process(data, receiver):
     if command == scp_interface.CallServerEvents.GCEV_OFFERED:
         event = scp_interface.EvOffered()
         if not event.unpack(data[9:]):
-            logger.error("onRequestReceived : Malformed request")
+            logger.error("onRequestReceived : GCEV_OFFERED Malformed request")
             return
         else:
             logger.info("onRequestReceived : GCEV_OFFERED")

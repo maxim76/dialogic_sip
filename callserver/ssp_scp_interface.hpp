@@ -1,7 +1,6 @@
 #pragma once
 
 #include <sstream>
-#include <cstring>	// strlen
 #include <string>
 
 /*
@@ -42,55 +41,52 @@ public:
 	const unsigned char eventCode_;
 };
 
-struct SSPEvent2 {
-	unsigned char eventCode;
+class SSPEventOffered : public SSPEvent, public ISerializable {
+public:
+	SSPEventOffered(std::string CgPN, std::string CdPN, std::string RdPN, RedirectionReason reason) :
+		SSPEvent(SSPEventCodes::OFFERED),
+		CgPN_(std::move(CgPN)),
+		CdPN_(std::move(CdPN)),
+		RdPN_(std::move(RdPN)),
+		reason_(reason)
+	{}
+
+	void serialize(std::ostream& out) const override {
+		// Event code
+		out.write(reinterpret_cast<const char*>(&eventCode_), sizeof(eventCode_));
+		// CgPN
+		size_t size = CgPN_.size();
+		out.write(reinterpret_cast<const char*>(&size), sizeof(char));
+		out.write(CgPN_.data(), size);
+		// CdPN
+		size = CdPN_.size();
+		out.write(reinterpret_cast<const char*>(&size), sizeof(char));
+		out.write(CdPN_.data(), size);
+		// RdPN
+		size = RdPN_.size();
+		out.write(reinterpret_cast<const char*>(&size), sizeof(char));
+		out.write(RdPN_.data(), size);
+		// redirectionReason
+		out.write(reinterpret_cast<const char*>(&reason_), sizeof(reason_));
+	}
+
+private:
+	std::string CgPN_;
+	std::string CdPN_;
+	std::string RdPN_;
+	RedirectionReason reason_;
 };
 
-static_assert(SSP_SCP_MAX_NUMSIZE < 256, "String field size must fit 1 byte");
-struct Offered
-{
-	SSPEvent2 sspEvent;
-	char CgPN[SSP_SCP_MAX_NUMSIZE];
-	char CdPN[SSP_SCP_MAX_NUMSIZE];
-	char RdPN[SSP_SCP_MAX_NUMSIZE];
-	RedirectionReason redirectionReason;
-	bool pack( char *buffer, size_t bufferSize, size_t *filledSize ) const
-	{
-		size_t lenCgPN = strlen( CgPN );
-		size_t lenCdPN = strlen( CdPN );
-		size_t lenRdPN = strlen( RdPN );
-		size_t totalSize = 1 + 1 + lenCgPN + 1 + lenCdPN + 1 + lenRdPN + sizeof(RedirectionReason);
-		if(bufferSize < totalSize) return false;
+class SSPEventAnswered : public SSPEvent, public ISerializable {
+public:
+	SSPEventAnswered() :
+		SSPEvent(SSPEventCodes::ANSWERED)
+	{}
 
-		size_t pos = 0;
-		// Event code
-		buffer[pos] = sspEvent.eventCode;
-		++pos;
-		// CgPN
-		buffer[pos] = lenCgPN;
-		++pos;
-		strncpy(&(buffer[pos]), CgPN, bufferSize - pos);
-		pos += lenCgPN;
-		// CdPN
-		buffer[pos] = lenCdPN;
-		++pos;
-		strncpy( &(buffer[pos]), CdPN, bufferSize - pos );
-		pos += lenCdPN;
-		// RdPN
-		buffer[pos] = lenRdPN;
-		++pos;
-		strncpy( &(buffer[pos]), RdPN, bufferSize - pos );
-		pos += lenRdPN;
-		// redirectionReason
-		// pack 2 bytes as little-endian
-		buffer[pos] = redirectionReason & (0xff);
-		buffer[pos + 1] = (redirectionReason & (0xff00)) >> 8;
-
-		*filledSize = totalSize;
-		return true;
+	void serialize(std::ostream& out) const override {
+		out.write(reinterpret_cast<const char*>(&eventCode_), sizeof(eventCode_));
 	}
 };
-
 
 class SSPEventOnPlayFinished : public SSPEvent, public ISerializable {
 public:

@@ -33,15 +33,25 @@ enum SSPEventCodes
 	PLAY_FINISHED
 };
 
-class SSPEvent
+class SSPEvent : public ISerializable
 {
 public:
 	SSPEvent(unsigned char eventCode) : eventCode_(eventCode) {}
 
+	void serialize(std::ostream& out) const override {
+		// Write Event code
+		out.write(reinterpret_cast<const char*>(&eventCode_), sizeof(eventCode_));
+		// Write Event specific data
+		serializeImpl(out);
+	}
+
+	virtual void serializeImpl(std::ostream& out) const = 0;
+
+private:
 	const unsigned char eventCode_;
 };
 
-class SSPEventOffered : public SSPEvent, public ISerializable {
+class SSPEventOffered : public SSPEvent {
 public:
 	SSPEventOffered(std::string CgPN, std::string CdPN, std::string RdPN, RedirectionReason reason) :
 		SSPEvent(SSPEventCodes::OFFERED),
@@ -51,9 +61,7 @@ public:
 		reason_(reason)
 	{}
 
-	void serialize(std::ostream& out) const override {
-		// Event code
-		out.write(reinterpret_cast<const char*>(&eventCode_), sizeof(eventCode_));
+	void serializeImpl(std::ostream& out) const override {
 		// CgPN
 		size_t size = CgPN_.size();
 		out.write(reinterpret_cast<const char*>(&size), sizeof(char));
@@ -77,26 +85,25 @@ private:
 	RedirectionReason reason_;
 };
 
-class SSPEventAnswered : public SSPEvent, public ISerializable {
+class SSPEventAnswered : public SSPEvent {
 public:
 	SSPEventAnswered() :
 		SSPEvent(SSPEventCodes::ANSWERED)
 	{}
 
-	void serialize(std::ostream& out) const override {
-		out.write(reinterpret_cast<const char*>(&eventCode_), sizeof(eventCode_));
+	void serializeImpl(std::ostream& out) const override {
+		// Nothing to write, ANSWERED does not have parameters
 	}
 };
 
-class SSPEventOnPlayFinished : public SSPEvent, public ISerializable {
+class SSPEventOnPlayFinished : public SSPEvent {
 public:
 	SSPEventOnPlayFinished(int result) : 
 		SSPEvent(SSPEventCodes::PLAY_FINISHED),
 		result_(result)
 	{}
 
-	void serialize(std::ostream& out) const override {
-		out.write(reinterpret_cast<const char*>(&eventCode_), sizeof(eventCode_));
+	void serializeImpl(std::ostream& out) const override {
 		out.write(reinterpret_cast<const char*>(&result_), sizeof(result_));
 	}
 

@@ -7,9 +7,6 @@ namespace transport {
 class TransportZMQ : public Transport {
 public:
 	TransportZMQ();
-	bool send(TRequestID req_id, TSessionID session_id, char* buf, size_t size) override;
-	bool send(TRequestID req_id, TSessionID session_id, const std::string& data) override;
-	bool send(TSessionID session_id, char* buf, size_t size) override;
 	bool send(TSessionID session_id, const ssp_scp::ISerializable& object) override;
 	bool recv(TRequestID* req_id, bool* isTimeout, char* buf, size_t* size) override;
 private:
@@ -18,6 +15,7 @@ private:
 	zmq::socket_t sender_;
 
 	static std::string get_version_str();
+	void sendStringBuf(const std::string& data);
 };
 
 
@@ -42,46 +40,21 @@ TransportZMQ::TransportZMQ() :
 	sender_.bind("tcp://*:5558");
 }
 
-bool TransportZMQ::send( TRequestID req_id, TSessionID session_id, char *buf, size_t size ) {
-	// TODO: ensure that send does not block
-	//zmq::message_t message( buf, size );
-	// TODO: избавиться от лишних копирований при передаче итогового буфера
-	std::vector<char> payload(sizeof(TRequestID) + sizeof(TSessionID) + size);
-	memcpy(&payload[0], &req_id, sizeof(TRequestID));
-	memcpy(&payload[sizeof(TRequestID)], &session_id, sizeof(TSessionID));
-	memcpy(&payload[sizeof(TRequestID) + sizeof(TSessionID)], buf, size);
-	zmq::message_t message(payload.begin(), payload.end());
-	sender_.send( message, zmq::send_flags::none );
-	return true;
-}
-
-bool TransportZMQ::send(TRequestID req_id, TSessionID session_id, const std::string& data) {
-	/*
-	zmq::message_t message(data.begin(), data.end());
-	sender_.send(message, zmq::send_flags::none);
-	*/
-
-	// TODO: избавиться от лишних копирований при передаче итогового буфера
-	// Пока не получается просто передать zmq::message_t message(data.begin(), data.end()); т.к. надо добавлять еще requireID и sessionID
-	std::vector<char> payload(sizeof(TRequestID) + sizeof(TSessionID) + data.size());
-	memcpy(&payload[0], &req_id, sizeof(TRequestID));
-	memcpy(&payload[sizeof(TRequestID)], &session_id, sizeof(TSessionID));
-	memcpy(&payload[sizeof(TRequestID) + sizeof(TSessionID)], data.c_str(), data.size());
-	zmq::message_t message(payload.begin(), payload.end());
-	sender_.send(message, zmq::send_flags::none);
-
-	return true;
-}
-
-bool TransportZMQ::send(TSessionID session_id, char* buf, size_t size) {
-	return send(getNextRequestID(), session_id, buf, size);
-}
-
 bool TransportZMQ::send(TSessionID session_id, const ssp_scp::ISerializable& object) {
 	std::ostringstream ostr;
+	
+	const TRequestID req_id = getNextRequestID();
+	ostr.write(reinterpret_cast<const char*>(&req_id), sizeof(TRequestID));
+	ostr.write(reinterpret_cast<const char*>(&session_id), sizeof(TSessionID));
 	object.serialize(ostr);
-	// Вероятно, при вызове ostr.str() произойдет лишнее копирование данных во временный объект (который в свою очередь будет тоже скопирован уже в `send`)
-	return send(getNextRequestID(), session_id, ostr.str());
+
+	sendStringBuf(ostr.str());
+	return true;
+}
+
+void TransportZMQ::sendStringBuf(const std::string& data) {
+	zmq::message_t message(data.begin(), data.end());
+	sender_.send(message, zmq::send_flags::none);
 }
 
 bool TransportZMQ::recv( TRequestID *req_id, bool *isTimeout, char *buf, size_t *size ) {

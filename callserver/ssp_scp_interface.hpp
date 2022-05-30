@@ -1,7 +1,11 @@
 #pragma once
 
+#include <memory>
 #include <sstream>
 #include <string>
+#include <unordered_map>
+//#include "callserver.hpp"
+#include "channel_manager.hpp"
 
 /*
 TODO:
@@ -111,6 +115,8 @@ private:
 	int result_;
 };
 
+
+
 enum SCPCommandCodes
 {
 	CMD_DROP = 0,
@@ -119,33 +125,24 @@ enum SCPCommandCodes
 };
 
 
-/*
-* TODO: Refactor
-* 1. SCPCommand вызывает свой невиртуальный unpack, который декодирует код команды а затем вызывает полиморфный Deserialize
-* 2. возможно стоит сделать конструктор, который принимает стрим и создает уже десериализированный экземпляр? Или это статик метод - фабрика классов
-*/
-struct SCPCommand
+class SCPCommand
 {
-	unsigned char commandCode;
-	virtual bool unpack(std::istream& in) {};
-};
-
-struct CmdDrop
-{
-	SCPCommand scpCommand;
-	RedirectionReason reason;
-};
-
-struct CmdPlay : SCPCommand
-{
-	std::string fragmentName;
-	bool unpack(std::istream& in) override {
-		uint16_t size;
-		std::string str;
-		in.read(reinterpret_cast<char*>(&size), sizeof(size));
-		fragmentName.resize(size);
-		in.read(&(fragmentName[0]), size);
+public:
+	 // TODO: передавать надо параметр ChannelManager& (когда он будет готов)
+	virtual void process(unsigned int channel) = 0;
+	virtual std::string getCommandName() {
+		static std::string defaultCommandName = "SCPCommand.getCommandName() override me";
+		return defaultCommandName;
 	}
+};
+
+
+class SCPCommandFactory {
+public:
+	virtual std::unique_ptr<SCPCommand> Construct(std::istream& in) const = 0;
+	virtual ~SCPCommandFactory() = default;
+
+	static const SCPCommandFactory& GetFactory(int id);
 };
 
 

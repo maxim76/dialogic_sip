@@ -1,3 +1,5 @@
+#pragma once
+
 /* Dialogic Header Files */
 #include <gcip.h>
 #include <gclib.h>
@@ -204,3 +206,14 @@ void InitDisconnect( int index, int reason = GC_NORMAL_CLEARING );
 void InitNewCall( int index );
 int  reasonCodeIP2reasonCodeDialogic(unsigned int reasonCodeIP);
 void writeStatistics();
+
+/*
+class ChannelManager {
+public:
+	ChannelManager(T_CHAN_INFO* channel_info_ptr);
+private:
+	T_CHAN_INFO *ChannelInfo;
+};
+
+ChannelManager* g_channel_manager_ptr = nullptr;
+*/

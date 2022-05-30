@@ -788,71 +788,22 @@ void processNetwork()
 //---------------------------------------------------------------------------
 bool processPacket(unsigned int channel, const char *data, size_t len)
 {
-	/*
-	ssp_scp::SCPCommand *scpCommand;
-	if (len < sizeof(ssp_scp::SSPEvent))
-	{
-		Log(TRC_CORE, TRC_ERROR, channel, "processPacket() : Packet size %u is too short to read SCPCommand code", len);
-		return false;
-	}
-	scpCommand = (ssp_scp::SCPCommand *)data;
-	*/
-	if (len < sizeof(ssp_scp::SCPCommand::commandCode))
+	if (len < sizeof(uint8_t))
 	{
 		Log(TRC_CORE, TRC_ERROR, channel, "processPacket() : Packet size %u is too short to read SCPCommand code", len);
 		return false;
 	}
 	uint8_t scpCommandCode = data[0];
-	Log(TRC_CORE, TRC_INFO, channel, "processPacket() : received command with code %d", scpCommandCode);
 
 	std::istringstream payload(std::string(&data[1], len - 1));
-	//switch (scpCommand->commandCode)
-	switch (scpCommandCode)
-	{
-	case ssp_scp::SCPCommandCodes::CMD_DROP:
-	{
-		if (len < sizeof(ssp_scp::CmdDrop)) {
-			Log(TRC_CORE, TRC_ERROR, channel, "processPacket() : Packet size %u is too short to read ssp_scp::CmdDrop, expected %u bytes", len, sizeof(ssp_scp::CmdDrop));
-			return false;
-		}
-		ssp_scp::CmdDrop *cmdDrop = (ssp_scp::CmdDrop *)data;
-		Log(TRC_CORE, TRC_INFO, channel, "processPacket() : received command DROP with reason %u", cmdDrop->reason);
-		int reasonCodeDialogic = reasonCodeIP2reasonCodeDialogic(cmdDrop->reason);
-		Log(TRC_CORE, TRC_INFO, channel, "processPacket() : invoking dropCall with reason %d", reasonCodeDialogic);
-		InitDisconnect(channel, reasonCodeDialogic);
-	}
-		break;
-	case ssp_scp::SCPCommandCodes::CMD_ANSWER:
-		if (SendACM > 0)
-		{
-			int ret = gc_AcceptCall(ChannelInfo[channel].Calls[0].crn, 0, EV_ASYNC);
-			LogFunc(channel, "gc_AcceptCall()", ret);
-		}
-		else
-		{
-			int ret = gc_AnswerCall(ChannelInfo[channel].Calls[0].crn, 0, EV_ASYNC);
-			LogFunc(channel, "gc_AnswerCall()", ret);
-		}
+	// TODO: обработка ошибок, что если команда не найдена
+	// Log(TRC_CORE, TRC_ERROR, channel, "processPacket() : Unknown command %u", scpCommandCode);
 
-		break;
-	case ssp_scp::SCPCommandCodes::CMD_PLAY:
-	{
-		ssp_scp::CmdPlay cmdPlay;
-		cmdPlay.unpack(payload);
-		Log(TRC_CORE, TRC_INFO, channel, "processPacket() : received command PLAY with fragment [%s]", cmdPlay.fragmentName.c_str());
-		if (!InitPlayFragment(channel, cmdPlay.fragmentName.c_str()))
-		{
-			// TODO: че делать тут если не удалось начать воспр-е? Наверное отправить ошибку на SCP и ждать
-			Log(TRC_CORE, TRC_INFO, channel, "processPacket() : Cannot ititiate playback");
-		}
-		break;
+	const auto& factory = ssp_scp::SCPCommandFactory::GetFactory(scpCommandCode);
+	auto command = factory.Construct(payload);
+	Log(TRC_CORE, TRC_INFO, channel, "processPacket() : received command %s", command->getCommandName().c_str());
+	command->process(channel);
 
-	}
-		break;
-	default:
-		Log(TRC_CORE, TRC_ERROR, channel, "processPacket() : Unknown command %u", scpCommandCode);
-		return false;
-	}
 	return true;
 }
 //---------------------------------------------------------------------------
@@ -1495,3 +1446,29 @@ void writeStatistics()
 	fflush( fStat );
 }
 //---------------------------------------------------------------------------------
+namespace commands {
+
+void Answer(int channel) {
+	if (SendACM > 0)
+	{
+		int ret = gc_AcceptCall(ChannelInfo[channel].Calls[0].crn, 0, EV_ASYNC);
+		LogFunc(channel, "gc_AcceptCall()", ret);
+	}
+	else
+	{
+		int ret = gc_AnswerCall(ChannelInfo[channel].Calls[0].crn, 0, EV_ASYNC);
+		LogFunc(channel, "gc_AnswerCall()", ret);
+	}
+}
+
+void PlayFragment(int channel, const std::string& fragment) {
+	InitPlayFragment(channel, fragment.c_str());
+}
+
+void DropCall(int channel, int reason) {
+	int reasonCodeDialogic = reasonCodeIP2reasonCodeDialogic(reason);
+	Log(TRC_CORE, TRC_INFO, channel, "DropCall() : invoking dropCall with reason %d", reasonCodeDialogic);
+	InitDisconnect(channel, reasonCodeDialogic);
+}
+
+} // namespace commands

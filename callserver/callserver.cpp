@@ -22,6 +22,7 @@
 #endif
 
 #include <algorithm>
+#include <cassert>
 #include <cstdint>
 #include <sstream>
 #include <unordered_map>
@@ -30,6 +31,7 @@
 #include "udp_request.hpp"
 #include "ssp_scp_interface.hpp"
 #include <memory>
+#include "sessions.hpp"
 #include "transport.hpp"
 #include "transport_zmq.hpp"
 
@@ -48,19 +50,7 @@ FILE *fErrorLog;
 FILE *fStat;
 UDPRequest *pUDPRequest;
 std::unique_ptr<transport::Transport> transport_ptr;
-
-class Session {
-public:
-	// TODO: тип результата сделать SessionID, который будет перенесен из transport.hpp в отлельный h-файл
-	// TODO: сделать сессию уникальной даже если работает несколько приложений и на нескольких хостах
-	static uint32_t getNewSessionID() {
-		return lastSession++;
-	}
-private:
-	static uint32_t lastSession;
-};
-
-uint32_t Session::lastSession = 0;
+SessionList g_session_list;
 
 int main( void )
 {
@@ -765,34 +755,42 @@ void processNetwork()
 {
 	bool isTimeout;
 	unsigned int req_id;
+	TSessionID session_id;
 	char data[MAX_DATAGRAM_SIZE];
 	size_t len;
 
-	while (transport_ptr->recv(&req_id, &isTimeout, data, &len)) {
+	while (transport_ptr->recv(&session_id, &isTimeout, data, &len)) {
 		if (!isTimeout)
 		{
-			Log(TRC_CORE, TRC_DUMP, req_id, "processNetwork() : Recv from SCP (%u bytes)", len);
-			if (!processPacket(req_id, data, len))
+			Log(TRC_CORE, TRC_DUMP, -1, "processNetwork() : Recv from SCP (%u bytes) for session %u", len, session_id);
+			if (!processPacket(session_id, data, len))
 			{
-				Log(TRC_CORE, TRC_WARNING, req_id, "processNetwork() : processPacket failed");
-				InitDisconnect(req_id);
+				Log(TRC_CORE, TRC_WARNING, -1, "processNetwork() : processPacket failed");
 			}
 		}
 		else
 		{
-			Log(TRC_CORE, TRC_WARNING, req_id, "processNetwork() : Request timeout");
-			InitDisconnect(req_id);
+			Log(TRC_CORE, TRC_WARNING, session_id, "processNetwork() : Request timeout");
+			InitDisconnect(session_id);
 		}
 	}
 }
 //---------------------------------------------------------------------------
-bool processPacket(unsigned int channel, const char *data, size_t len)
+bool processPacket(TSessionID session_id, const char *data, size_t len)
 {
+	// TODO: если есть флаг создания сессии (напр. для команды MakeCall) то вместо попытки поиска, создать сессию
+	int channel = g_session_list.getChannelBySession(session_id);
+	if (channel == -1) {
+		Log(TRC_CORE, TRC_ERROR, -1, "processPacket() : Channel for session %u is not found", session_id);
+		return false;
+	}
+
 	if (len < sizeof(uint8_t))
 	{
 		Log(TRC_CORE, TRC_ERROR, channel, "processPacket() : Packet size %u is too short to read SCPCommand code", len);
 		return false;
 	}
+
 	uint8_t scpCommandCode = data[0];
 
 	std::istringstream payload(std::string(&data[1], len - 1));
@@ -984,7 +982,8 @@ void process_event()
 			{
 				ssp_scp::SSPEventOffered messageOffered(ChannelInfo[index].CgPN, ChannelInfo[index].CdPN, ChannelInfo[index].RdPN, reasonCodeIP);
 				Log(TRC_CORE, TRC_DUMP, index, "process_event() : Send Offered event to SCP");
-				transport_ptr->send(Session::getNewSessionID(), messageOffered);
+				TSessionID session = g_session_list.createSession(index);
+				transport_ptr->send(session, messageOffered);
 			}
 				break;
 			default:	// other modes, that requires connection
@@ -1059,7 +1058,10 @@ void process_event()
 				case MODE_SSP:
 				{
 					Log(TRC_CORE, TRC_DUMP, index, "process_event() : Send Answered event to SCP");
-					transport_ptr->send(Session::getNewSessionID(), ssp_scp::SSPEventAnswered());
+					TSessionID session = g_session_list.getSessionByChannel(index);
+					assert(session != UNKNOWN_SESSION);
+					// TODO: if no session found, terminate
+					transport_ptr->send(session, ssp_scp::SSPEventAnswered());
 				}
 					break;
 				default:
@@ -1227,9 +1229,9 @@ void process_event()
 				case MODE_SSP:
 					ssp_scp::SSPEventOnPlayFinished onPlayFinished(ATDX_TERMMSK(hdDev));
 					Log(TRC_CORE, TRC_DUMP, index, "process_event() : Send onPlayFinished event to SCP");
-					// TODO: продолжить использовать прежнюю сессию
-					transport_ptr->send(Session::getNewSessionID(), onPlayFinished);
-
+					TSessionID session = g_session_list.getSessionByChannel(index);
+					assert(session != UNKNOWN_SESSION);
+					transport_ptr->send(session, onPlayFinished);
 					break;
 				}
 				/*

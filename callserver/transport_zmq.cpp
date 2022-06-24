@@ -57,6 +57,7 @@ void TransportZMQ::sendStringBuf(const std::string& data) {
 	sender_.send(message, zmq::send_flags::none);
 }
 
+/*
 bool TransportZMQ::recv( TRequestID *req_id, bool *isTimeout, char *buf, size_t *size ) {
 	// TODO: обработку таймаутов вынести в Transport
 	zmq::pollitem_t items[] = {
@@ -84,6 +85,52 @@ bool TransportZMQ::recv( TRequestID *req_id, bool *isTimeout, char *buf, size_t 
 	}
 	return false;
 }
+*/
+bool TransportZMQ::recv(TSessionID* session_id, bool* isTimeout, char* buf, size_t* size) {
+	// TODO: обработку таймаутов вынести в Transport
+	zmq::pollitem_t items[] = {
+			{ sender_, 0, ZMQ_POLLIN, 0 }
+	};
+	zmq::message_t message;
+
+	if (zmq::poll(&items[0], 1, 0) > 0) {
+		if (items[0].revents & ZMQ_POLLIN) {
+			zmq::recv_result_t maybe_size = sender_.recv(message, zmq::recv_flags::none);
+			if (maybe_size) {
+				auto received_size = *maybe_size;
+
+				std::string data_dump;
+				data_dump.resize(received_size * 3);
+				for (size_t i = 0; i < received_size; ++i) {
+					unsigned char digit = *((char*)message.data() + i);
+					sprintf(&(data_dump[i*3]), "%02x ", digit);
+				}
+				printf("TransportZMQ::receive : received RESP %llu bytes : [%s]\n", received_size, data_dump.c_str());
+
+				if (received_size < sizeof(TRequestID) + sizeof(TSessionID) + sizeof(TSCPCommandCode)) {
+					printf("TransportZMQ::receive : too short data chunk received\n");
+					return false;
+				}
+				*isTimeout = false;
+				// TODO: у message должна быть возможность move ?
+				TRequestID req_id;
+				memcpy((char*)&req_id, message.data(), sizeof(TRequestID));
+				memcpy((char*)session_id, (char *)message.data() + sizeof(TRequestID), sizeof(TSessionID));
+				auto data_size = received_size - sizeof(TRequestID) - sizeof(TSessionID);
+				memcpy(buf, (char *)message.data() + sizeof(TRequestID) + sizeof(TSessionID), data_size);
+				*size = data_size;
+			}
+			else {
+				printf("TransportZMQ::receive : error\n");
+				return false;
+			}
+
+		}
+		return true;
+	}
+	return false;
+}
+
 
 std::string TransportZMQ::get_version_str() {
 	int major = 0;

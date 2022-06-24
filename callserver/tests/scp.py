@@ -14,20 +14,28 @@ formatter = logging.Formatter('%(asctime)s %(levelname)-8s %(name)-24s %(message
 consoleHandler.setFormatter(formatter)
 logger.addHandler(consoleHandler)
 
+def SendResponse(receiver, requestID, sessionID, payload):
+    data = bytearray()
+    data += struct.pack('I', requestID)
+    data += struct.pack('I', sessionID)
+    data += payload
+    logger.debug("SendResponse : [" + ' '.join( ["%02X" % ch for ch in data] ) + "]")
+    receiver.send(data)
+
 
 def Process(data, receiver):
-    logger.debug("onRequestReceived : [" + ''.join( ["%02X" % ch for ch in data] ) + "]")
+    logger.debug("onRequestReceived : [" + ' '.join( ["%02X" % ch for ch in data] ) + "]")
     if len(data) <= 8:
         logger.error("onRequestReceived : Malformed request")
         return
 
     requestID = struct.unpack('I', data[0:4])[0]
     sessionID = struct.unpack('I', data[4:8])[0]
-    command = data[8]
-    logger.info("onRequestReceived : requestID [%d]  sessionID [%d] command code [%d]" % (requestID, sessionID, command))
+    event = data[8]
+    logger.info("onRequestReceived : requestID [%d]  sessionID [%d] command code [%d]" % (requestID, sessionID, event))
     
     # get event type and call corresponding handler
-    if command == scp_interface.CallServerEvents.GCEV_OFFERED:
+    if event == scp_interface.CallServerEvents.GCEV_OFFERED:
         event = scp_interface.EvOffered()
         if not event.unpack(data[9:]):
             logger.error("onRequestReceived : GCEV_OFFERED Malformed request")
@@ -39,19 +47,21 @@ def Process(data, receiver):
             # Answer the call
             response = scp_interface.CallServerCommand.answerCall()
             logger.info("onOffered : sending command ANSWER")
-            receiver.send(response)
+            SendResponse(receiver, requestID, sessionID, response)
 
-    elif command == scp_interface.CallServerEvents.GCEV_ANSWERED:
+    elif event == scp_interface.CallServerEvents.GCEV_ANSWERED:
+        logger.info("onRequestReceived : GCEV_ANSWERED")
         # Play file
         response = scp_interface.CallServerCommand.playFragment("ussr.wav")
         logger.info("onOffered : sending command PLAY")
-        receiver.send(response)
+        SendResponse(receiver, requestID, sessionID, response)
 
-    elif command == scp_interface.CallServerEvents.PLAY_FINISHED:
+    elif event == scp_interface.CallServerEvents.PLAY_FINISHED:
+        logger.info("onRequestReceived : PLAY_FINISHED")
         # Drop the call
         response = scp_interface.CallServerCommand.dropCall(1234)
         logger.info("onOffered : sending command DROP with reason %d" % 1234)
-        receiver.send(response)
+        SendResponse(receiver, requestID, sessionID, response)
 
     else:
         logger.error("onRequestReceived : Unhandled event code %d" % data[0])

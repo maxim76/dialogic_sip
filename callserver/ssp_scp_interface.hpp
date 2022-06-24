@@ -7,6 +7,9 @@
 //#include "callserver.hpp"
 #include "channel_manager.hpp"
 
+//typedef uint32_t TSessionID;
+typedef uint8_t TSCPCommandCode;
+
 /*
 TODO:
 1. Вынести реализация в cpp

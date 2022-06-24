@@ -6,6 +6,8 @@
 #include <gcisdn.h>
 #include <srllib.h>
 #include <dxxxlib.h>
+
+#include "sessions.hpp"
 //---------------------------------------------------------------------------
 #define YES					1
 #define NO					0
@@ -192,7 +194,7 @@ void InitNetwork();
 void Deinit();
 void processGlobalCall();
 void processNetwork();
-bool processPacket(unsigned int channel, const char *data, size_t len);
+bool processPacket(TSessionID session_id, const char *data, size_t len);
 bool checkAppExitCondition();
 void process_event();
 void InitChannels();

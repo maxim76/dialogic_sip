@@ -28,6 +28,7 @@
 #include <unordered_map>
 
 #include "callserver.hpp"
+#include "logging.h"
 #include "udp_request.hpp"
 #include "ssp_scp_interface.hpp"
 #include <memory>
@@ -45,9 +46,6 @@
 
 static int		interrupted = NO;	/* Flag for user interrupted signals		 */
 time_t			start_time;		// To note down the start time
-FILE *fLog;
-FILE *fErrorLog;
-FILE *fStat;
 UDPRequest *pUDPRequest;
 std::unique_ptr<transport::Transport> transport_ptr;
 SessionList g_session_list;
@@ -55,7 +53,7 @@ SessionList g_session_list;
 int main( void )
 {
 	time( &start_time );
-	InitLogFile();
+	InitLogFile(DT_GC);
 	Log( TRC_CORE, TRC_INFO, -1, "********** IVR server started ***********" );
 
 	// Set Ctrl+C interruption handler for clean app shutdown
@@ -135,52 +133,6 @@ static void intr_hdlr( int receivedSignal )
 	Log( TRC_CORE, TRC_WARNING, -1, " *******Received User Interrupted Signal *******" );
 	Deinit();
 	interrupted = YES;
-}
-//---------------------------------------------------------------------------
-void InitLogFile()
-{
-	const char * logDir = "./Logs/";
-	// Create directory for log files if it does not exist
-	int res;
-#ifdef _WIN32
-	res = _mkdir( logDir );
-#else
-	res = mkdir( logDir, 0733 );
-#endif
-	if ((res != 0) && (errno != EEXIST))
-	{
-		printf( "Cannot create log dir. Error: %d (%s)\n", errno, strerror(errno) );
-		exit( 1 );
-	}
-
-	char sFN[64];
-	struct tm *tblock;
-	tblock = localtime( &start_time );
-
-	// Full log file
-	sprintf( sFN, "%s/ivrserv_%04d%02d%02d_%02d%02d%02d.txt", logDir, tblock->tm_year + 1900, tblock->tm_mon + 1, tblock->tm_mday, tblock->tm_hour, tblock->tm_min, tblock->tm_sec );
-	if((fLog = fopen( sFN, "w" )) == NULL)
-	{
-		printf( "Cannot create log file. Termination.\n" );
-		exit( 1 );
-	}
-
-	// Errors only
-	sprintf( sFN, "%s/errors_%04d%02d%02d_%02d%02d%02d.txt", logDir, tblock->tm_year + 1900, tblock->tm_mon + 1, tblock->tm_mday, tblock->tm_hour, tblock->tm_min, tblock->tm_sec );
-	if((fErrorLog = fopen( sFN, "w" )) == NULL)
-	{
-		printf( "Cannot create error log file. Termination.\n" );
-		exit( 1 );
-	}
-
-	// Statistics
-	sprintf( sFN, "%s/stat_%04d%02d%02d_%02d%02d%02d.txt", logDir, tblock->tm_year + 1900, tblock->tm_mon + 1, tblock->tm_mday, tblock->tm_hour, tblock->tm_min, tblock->tm_sec );
-	if((fStat = fopen( sFN, "w" )) == NULL)
-	{
-		printf( "Cannot create statistics file. Termination.\n" );
-		exit( 1 );
-	}
-
 }
 //---------------------------------------------------------------------------
 void InitDialogicLibs()
@@ -280,14 +232,14 @@ void Deinit()
 		case PST_CALLING:
 			ChannelInfo[i].PState = PST_RELEASING;
 			ret = gc_DropCall( ChannelInfo[i].Calls[0].crn, GC_NORMAL_CLEARING, EV_ASYNC );
-			LogFunc( i, "gc_DropCall()", ret );
+			LogFunc( i, "gc_DropCall()", (ret==GC_SUCCESS) );
 			break;
 		case PST_PLAY:
 			ret = dx_stopch( ChannelInfo[i].hdVoice, EV_ASYNC );
-			LogFunc( i, "dx_stopch()", ret );
+			LogFunc( i, "dx_stopch()", (ret == GC_SUCCESS));
 			ChannelInfo[i].PState = PST_RELEASING;
 			ret = gc_DropCall( ChannelInfo[i].Calls[0].crn, GC_NORMAL_CLEARING, EV_ASYNC );
-			LogFunc( i, "gc_DropCall()", ret );
+			LogFunc( i, "gc_DropCall()", (ret == GC_SUCCESS));
 			break;
 			/*
 		case PST_TERMINATION:
@@ -299,95 +251,6 @@ void Deinit()
 			LogFunc( i, "gc_Close()", ret );
 			*/
 		}
-	}
-}
-//---------------------------------------------------------------------------
-void Log( int Src, int Svrt, int Line, const char *format, ... )
-{
-	char str[LOGSTRSIZE];	// Full log string
-	char msg[LOGSTRSIZE];	// Message part
-
-	// Form log source part
-	std::string logSource = "";
-	switch(Src)
-	{
-	case TRC_CORE: logSource = "CORE"; break;
-	case TRC_GC:   logSource = "GC  "; break;
-	case TRC_DX:   logSource = "DX  "; break;
-	case TRC_SETT: logSource = "SETT"; break;
-	}
-
-	// Form verbal severity description
-	std::string severityDescr = "";
-	switch(Svrt)
-	{
-	case TRC_DUMP:     severityDescr = "DUMP    "; break;
-	case TRC_INFO:     severityDescr = "INFO    "; break;
-	case TRC_WARNING:  severityDescr = "WARNING "; break;
-	case TRC_ERROR:    severityDescr = "ERROR   "; break;
-	case TRC_CRITICAL: severityDescr = "CRITICAL"; break;
-	}
-
-	// Form message
-	va_list args;
-	va_start( args, format );
-	vsprintf( msg, format, args );
-	va_end( args );
-
-	if(Line >= 0)
-		snprintf( str, LOGSTRSIZE, "[%s] %s [%04d] %s", logSource.c_str(), severityDescr.c_str(), Line, msg );
-	else
-		snprintf( str, LOGSTRSIZE, "[%s] %s [    ] %s", logSource.c_str(), severityDescr.c_str(), msg );
-
-	LogWrite( str, Svrt );
-}
-//---------------------------------------------------------------------------
-void LogGC( int Svrt, int Line, int event, const char *msg )
-{
-	char str[LOGSTRSIZE];
-	char sEvt[GCEVENTNAMESIZE];
-	strncpy( sEvt, GcEventNames[event - DT_GC], GCEVENTNAMESIZE );
-	if(sEvt[0] == 0) snprintf( sEvt, GCEVENTNAMESIZE, "0x%04x", event );
-	snprintf(str, LOGSTRSIZE, "%s %s", sEvt, msg );
-	Log( TRC_GC, Svrt, Line, str );
-}
-//---------------------------------------------------------------------------
-void LogDX( int Svrt, int Line, int event, const char *msg )
-{
-	char str[LOGSTRSIZE];
-	char sEvt[GCEVENTNAMESIZE];
-	strncpy( sEvt, DxEventNames[event - 0x81], GCEVENTNAMESIZE );
-	if(sEvt[0] == 0) snprintf( sEvt, GCEVENTNAMESIZE, "0x%04x", event );
-	snprintf( str, LOGSTRSIZE, "%s %s", sEvt, msg );
-	Log( TRC_DX, Svrt, Line, str );
-}
-//---------------------------------------------------------------------------
-void LogFunc( int Line, const char *FuncName, int ret )
-{
-	char str[LOGSTRSIZE];
-	sprintf( str, "%s : %s", FuncName, (ret == GC_SUCCESS) ? "Ok" : "Error" );
-	Log( TRC_CORE, (ret == GC_SUCCESS) ? 0 : 2, Line, str );
-}
-//---------------------------------------------------------------------------
-void LogWrite( const char *msg, int Svrt )
-{
-	/*
-	// TODO: Implement filtering (non-error log only) if required
-	if((TraceMask & Src) == 0) return;
-	if(Svrt < SeverityFilter)  return;
-	*/
-
-	time_t timer = time( NULL );
-	struct tm *tblock;
-	tblock = localtime( &timer );
-	printf( "%04d/%02d/%02d %02d:%02d:%02d %s\n", tblock->tm_year + 1900, tblock->tm_mon + 1, tblock->tm_mday, tblock->tm_hour, tblock->tm_min, tblock->tm_sec, msg );
-	fprintf( fLog, "%04d/%02d/%02d %02d:%02d:%02d %s\n", tblock->tm_year + 1900, tblock->tm_mon + 1, tblock->tm_mday, tblock->tm_hour, tblock->tm_min, tblock->tm_sec, msg );
-	fflush( fLog );
-
-	if(Svrt >= DEFAULT_ERRLOG_FILTER)
-	{
-		fprintf( fErrorLog, "%04d/%02d/%02d %02d:%02d:%02d %s\n", tblock->tm_year + 1900, tblock->tm_mon + 1, tblock->tm_mday, tblock->tm_hour, tblock->tm_min, tblock->tm_sec, msg );
-		fflush( fErrorLog );
 	}
 }
 //---------------------------------------------------------------------------
@@ -726,7 +589,7 @@ void InitChannels()
 			(absoluteChannelIndex % 4) + 1 );
 		ret = gc_OpenEx( &(ChannelInfo[i].hdLine), FullDevName, EV_ASYNC, (void *)i );
 		sprintf( str, "gc_OpenEx(\"%s\") = %d", FullDevName, ret );
-		LogFunc( i, str, ret );
+		LogFunc( i, str, (ret == GC_SUCCESS));
 		if(ret == GC_SUCCESS)
 		{
 			ChannelInfo[i].iott.io_fhandle = -1;
@@ -827,7 +690,7 @@ bool checkAppExitCondition()
 		case PST_NULL:
 		case PST_IDLE:
 			ret = gc_Close( ChannelInfo[i].hdLine );
-			LogFunc( i, "gc_Close()", ret );
+			LogFunc( i, "gc_Close()", (ret == GC_SUCCESS));
 			ChannelInfo[i].PState = PST_SHUTDOWN;
 		}
 
@@ -840,9 +703,7 @@ bool checkAppExitCondition()
 	}
 	if(fCanClose)
 	{
-		fclose( fLog );
-		fclose( fErrorLog );
-		fclose( fStat );
+		CloseLogFiles();
 		return true;
 	}
 	else
@@ -913,7 +774,7 @@ void process_event()
 			LogGC( TRC_INFO, index, evttype, "Channel is unblocked" );
 
 			ret = gc_GetResourceH( ChannelInfo[index].hdLine, &(ChannelInfo[index].hdVoice), GC_VOICEDEVICE );
-			LogFunc( index, "gc_GetResourceH()", ret );
+			LogFunc( index, "gc_GetResourceH()", (ret == GC_SUCCESS));
 			if(ret == GC_SUCCESS)
 			{
 				ChannelInfo[index].VReady = 1;
@@ -923,19 +784,19 @@ void process_event()
 			{
 			}
 			ret = gc_SetAlarmNotifyAll( ChannelInfo[index].hdLine, ALARM_SOURCE_ID_NETWORK_ID, ALARM_NOTIFY );
-			LogFunc( index, "gc_SetAlarmNotifyAll()", ret );
+			LogFunc( index, "gc_SetAlarmNotifyAll()", (ret == GC_SUCCESS));
 			gc_util_insert_parm_val( &parmblkp, IPSET_DTMF, IPPARM_SUPPORT_DTMF_BITMASK, sizeof( char ), IP_DTMF_TYPE_RFC_2833 );
 			ret = gc_SetUserInfo( GCTGT_GCLIB_CHAN, ChannelInfo[index].hdLine, parmblkp, GC_ALLCALLS );
-			LogFunc( index, "gc_SetUserInfo(Set DTMF mode)", ret );
+			LogFunc( index, "gc_SetUserInfo(Set DTMF mode)", (ret == GC_SUCCESS));
 			gc_util_delete_parm_blk( parmblkp );
 			ret = dx_setevtmsk( ChannelInfo[index].hdVoice, DM_DIGITS );
-			LogFunc( index, "dx_setevtmsk()", ret );
+			LogFunc( index, "dx_setevtmsk()", (ret == GC_SUCCESS));
 
 			ChannelInfo[index].blocked = 0;
 			if(ChannelInfo[index].VReady)
 			{
 				ret = gc_WaitCall( ChannelInfo[index].hdLine, NULL, NULL, 0, EV_ASYNC );
-				LogFunc( index, "gc_WaitCall()", ret );
+				LogFunc( index, "gc_WaitCall()", (ret == GC_SUCCESS));
 			}
 			else
 			{
@@ -999,7 +860,7 @@ void process_event()
 					}
 					else
 					{
-						LogFunc( index, "gc_CallAck", 0 );
+						LogFunc( index, "gc_CallAck", true );
 					}
 				}
 				else
@@ -1007,12 +868,12 @@ void process_event()
 					if(SendACM > 0)
 					{
 						ret = gc_AcceptCall( TempCRN, 0, EV_ASYNC );
-						LogFunc( index, "gc_AcceptCall()", ret );
+						LogFunc( index, "gc_AcceptCall()", (ret == GC_SUCCESS));
 					}
 					else
 					{
 						ret = gc_AnswerCall( TempCRN, 0, EV_ASYNC );
-						LogFunc( index, "gc_AnswerCall()", ret );
+						LogFunc( index, "gc_AnswerCall()", (ret == GC_SUCCESS));
 					}
 				}
 			}
@@ -1023,12 +884,12 @@ void process_event()
 			if(SendACM > 0)
 			{
 				ret = gc_AcceptCall( TempCRN, 0, EV_ASYNC );
-				LogFunc( index, "gc_AcceptCall()", ret );
+				LogFunc( index, "gc_AcceptCall()", (ret == GC_SUCCESS));
 			}
 			else
 			{
 				ret = gc_AnswerCall( TempCRN, 0, EV_ASYNC );
-				LogFunc( index, "gc_AnswerCall()", ret );
+				LogFunc( index, "gc_AnswerCall()", (ret == GC_SUCCESS));
 			}
 			break;
 		case GCEV_ACCEPT:
@@ -1037,7 +898,7 @@ void process_event()
 				ChannelInfo[index].Calls[CallNdx].SState = GCST_ACCEPTED;
 			else Log( TRC_GC, TRC_ERROR, index, "CallIndex for CRN not found" );
 			ret = gc_AnswerCall( TempCRN, 0, EV_ASYNC );
-			LogFunc( index, "gc_AnswerCall()", ret );
+			LogFunc( index, "gc_AnswerCall()", (ret == GC_SUCCESS));
 			break;
 
 		case GCEV_ANSWERED:
@@ -1052,7 +913,7 @@ void process_event()
 					if(!InitPlayFragment( index, defaultFragment ))
 					{
 						ret = gc_DropCall( TempCRN, GC_NORMAL_CLEARING, EV_ASYNC );
-						LogFunc( index, "gc_DropCall()", ret );
+						LogFunc( index, "gc_DropCall()", (ret == GC_SUCCESS));
 					}
 					break;
 				case MODE_SSP:
@@ -1067,14 +928,14 @@ void process_event()
 				default:
 					Log( TRC_CORE, TRC_ERROR, index, "Misconfiguration: unsupported Mode" );
 					ret = gc_DropCall( TempCRN, GC_NORMAL_CLEARING, EV_ASYNC );
-					LogFunc( index, "gc_DropCall()", ret );
+					LogFunc( index, "gc_DropCall()", (ret == GC_SUCCESS));
 				}
 			}
 			else
 			{
 				Log( TRC_GC, TRC_ERROR, index, "CallIndex for CRN not found" );
 				ret = gc_DropCall( TempCRN, GC_NORMAL_CLEARING, EV_ASYNC );
-				LogFunc( index, "gc_DropCall()", ret );
+				LogFunc( index, "gc_DropCall()", (ret == GC_SUCCESS));
 			}
 			break;
 
@@ -1094,7 +955,7 @@ void process_event()
 			{  // Should not be such case
 				LogGC( TRC_ERROR, index, evttype, "CallIndex for CRN not found" );
 				ret = gc_DropCall( TempCRN, GC_NORMAL_CLEARING, EV_ASYNC );
-				LogFunc( index, "gc_DropCall()", ret );
+				LogFunc( index, "gc_DropCall()", (ret == GC_SUCCESS));
 			}
 			else
 			{
@@ -1104,7 +965,7 @@ void process_event()
 					LogGC( TRC_INFO, index, evttype, "Network terminated" );
 					ChannelInfo[index].Calls[CallNdx].SState = GCST_DISCONNECTED;
 					ret = gc_DropCall( TempCRN, GC_NORMAL_CLEARING, EV_ASYNC );
-					LogFunc( index, "gc_DropCall()", ret );
+					LogFunc( index, "gc_DropCall()", (ret == GC_SUCCESS));
 					break;
 				case GCST_DIALING:   // Network rejects || Glare
 					ChannelInfo[index].Calls[CallNdx].SState = GCST_DISCONNECTED;
@@ -1113,7 +974,7 @@ void process_event()
 					else
 						LogGC( TRC_WARNING, index, evttype, "Network rejected outgoing call. GLARE" );
 					ret = gc_DropCall( TempCRN, GC_NORMAL_CLEARING, EV_ASYNC );
-					LogFunc( index, "gc_DropCall()", ret );
+					LogFunc( index, "gc_DropCall()", (ret == GC_SUCCESS));
 					break;
 				case GCST_DISCONNECTED:  // Simul. discconnect
 					LogGC( TRC_WARNING, index, evttype, "Simultaneous disconnect" );
@@ -1123,7 +984,7 @@ void process_event()
 					LogGC( TRC_ERROR, index, evttype, str );
 					ChannelInfo[index].Calls[CallNdx].SState = GCST_DISCONNECTED;
 					ret = gc_DropCall( TempCRN, GC_NORMAL_CLEARING, EV_ASYNC );
-					LogFunc( index, "gc_DropCall()", ret );
+					LogFunc( index, "gc_DropCall()", (ret == GC_SUCCESS));
 				}
 			}
 			break;
@@ -1143,7 +1004,7 @@ void process_event()
 				ChannelInfo[index].Calls[CallNdx].SState = GCST_IDLE;
 			}
 			ret = gc_ReleaseCallEx( TempCRN, EV_ASYNC );
-			LogFunc( index, "gc_ReleaseCallEx()", ret );
+			LogFunc( index, "gc_ReleaseCallEx()", (ret == GC_SUCCESS));
 			break;
 		case GCEV_RELEASECALL:
 			stUsed--;
@@ -1180,19 +1041,19 @@ void process_event()
 				ChannelInfo[index].Calls[i].SState = GCST_NULL;
 			}
 			ret = gc_WaitCall( ChannelInfo[index].hdLine, NULL, NULL, 0, EV_ASYNC );
-			LogFunc( index, "gc_WaitCall()", ret );
+			LogFunc( index, "gc_WaitCall()", (ret == GC_SUCCESS));
 			break;
 		case GCEV_TASKFAIL:
 			LogGC( TRC_ERROR, index, evttype, "" );
 			ChannelInfo[index].blocked = 0;
 			ret = gc_ResultInfo( &metaevent, &gc_error_info );
-			LogFunc( index, "gc_ResultInfo()", ret );
+			LogFunc( index, "gc_ResultInfo()", (ret == GC_SUCCESS));
 			if(ret == GC_SUCCESS)
 			{
 				LogGC_INFO( index, &gc_error_info );
 			}
 			ret = gc_ResetLineDev( ChannelInfo[index].hdLine, EV_ASYNC );
-			LogFunc( index, "gc_ResetLineDev()", ret );
+			LogFunc( index, "gc_ResetLineDev()", (ret == GC_SUCCESS));
 			break;
 		case GCEV_PROCEEDING:
 			LogGC( TRC_INFO, index, evttype, "" );
@@ -1379,7 +1240,7 @@ bool InitPlayFragment( int index, const char *filename )
 		ChannelInfo[index].iott.io_length = -1;
 		ChannelInfo[index].xpb.wFileFormat = FILE_FORMAT_WAVE;
 		ret = dx_playiottdata( ChannelInfo[index].hdVoice, &(ChannelInfo[index].iott), NULL, &(ChannelInfo[index].xpb), EV_ASYNC );
-		LogFunc( index, "dx_playiottdata()", ret );
+		LogFunc( index, "dx_playiottdata()", (ret == GC_SUCCESS));
 		if(ret != GC_SUCCESS)
 		{
 			close( ChannelInfo[index].iott.io_fhandle );
@@ -1404,14 +1265,14 @@ void InitDisconnect( int N, int reason )
 	int ret;
 	ChannelInfo[N].PState = PST_RELEASING;
 	ret = gc_DropCall( ChannelInfo[N].Calls[0].crn, reason, EV_ASYNC );
-	LogFunc( N, "gc_DropCall()", ret );
+	LogFunc( N, "gc_DropCall()", (ret == GC_SUCCESS));
 }
 //---------------------------------------------------------------------------------
 void InitNewCall( int N )
 {
 	int ret;
 	ret = gc_MakeCall( ChannelInfo[N].hdLine, &(ChannelInfo[N].Calls[0].crn), NULL, &(ChannelInfo[N].makecallblk), 15, EV_ASYNC );
-	LogFunc( N, "gc_MakeCall()", ret );
+	LogFunc( N, "gc_MakeCall()", (ret == GC_SUCCESS));
 	if(ret == GC_SUCCESS)
 	{
 		ChannelInfo[N].Calls[0].SState = GCST_DIALING;
@@ -1439,6 +1300,7 @@ int  reasonCodeIP2reasonCodeDialogic(unsigned int reasonCodeIP)
 //---------------------------------------------------------------------------------
 void writeStatistics()
 {
+	/*
 	struct tm *tblock;
 	tblock = localtime( &start_time );
 
@@ -1446,6 +1308,8 @@ void writeStatistics()
 		tblock->tm_year + 1900, tblock->tm_mon + 1, tblock->tm_mday, tblock->tm_hour, tblock->tm_min, tblock->tm_sec,
 		TotalChannels, stUnblocked, stUsed );
 	fflush( fStat );
+	*/
+	LogStat(TotalChannels, stUnblocked, stUsed);
 }
 //---------------------------------------------------------------------------------
 namespace commands {
@@ -1454,12 +1318,12 @@ void Answer(int channel) {
 	if (SendACM > 0)
 	{
 		int ret = gc_AcceptCall(ChannelInfo[channel].Calls[0].crn, 0, EV_ASYNC);
-		LogFunc(channel, "gc_AcceptCall()", ret);
+		LogFunc(channel, "gc_AcceptCall()", (ret == GC_SUCCESS));
 	}
 	else
 	{
 		int ret = gc_AnswerCall(ChannelInfo[channel].Calls[0].crn, 0, EV_ASYNC);
-		LogFunc(channel, "gc_AnswerCall()", ret);
+		LogFunc(channel, "gc_AnswerCall()", (ret == GC_SUCCESS));
 	}
 }
 

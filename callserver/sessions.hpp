@@ -2,6 +2,8 @@
 #include <limits>
 #include <unordered_map>
 
+#include "logging.h"
+
 typedef uint32_t TSessionID;
 const TSessionID UNKNOWN_SESSION = std::numeric_limits<TSessionID>::max();
 
@@ -22,7 +24,7 @@ public:
 		TSessionID session = Session::getNewSessionID();
 		channel2session[channel] = session;
 		session2channel[session] = channel;
-		printf("Created session %u on channel %i\n", session, channel);
+		Log(TRC_CORE, TRC_DUMP, channel, "Created session %u on channel %i", session, channel);
 		return session;
 	}
 

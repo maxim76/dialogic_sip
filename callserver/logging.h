@@ -5,6 +5,7 @@
 #define TRC_GC		2
 #define TRC_DX		4
 #define TRC_SETT	8
+#define TRC_NET		16
 
 #define TRC_DUMP		0
 #define TRC_INFO		1

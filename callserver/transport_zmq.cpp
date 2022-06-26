@@ -2,6 +2,8 @@
 #include <string>
 #include <zmq.hpp>
 
+#include "logging.h"
+
 namespace transport {
 
 class TransportZMQ : public Transport {
@@ -26,8 +28,7 @@ TransportZMQ::TransportZMQ() :
 	receiver_( context_, ZMQ_REP ),
 	sender_( context_, ZMQ_REQ )
 {
-	//fprintf( stdout, "TransportZMQ : ZMQ endpoint initialization\n" );
-	fprintf(stdout, "TransportZMQ : ZMQ endpoint initialization. %s\n", TransportZMQ::get_version_str().c_str());
+	Log(TRC_NET, TRC_INFO, -1, "TransportZMQ : ZMQ endpoint initialization. %s", TransportZMQ::get_version_str().c_str());
 
 	// Socket to receive messages from SCP
 	// TODO: get IP:port prom ctor parameters
@@ -54,38 +55,18 @@ bool TransportZMQ::send(TSessionID session_id, const ssp_scp::ISerializable& obj
 
 void TransportZMQ::sendStringBuf(const std::string& data) {
 	zmq::message_t message(data.begin(), data.end());
+
+	std::string data_dump;
+	data_dump.resize(data.size() * 3);
+	for (size_t i = 0; i < data.size(); ++i) {
+		unsigned char digit = *((char*)data.data() + i);
+		sprintf(&(data_dump[i * 3]), "%02x ", digit);
+	}
+
+	Log(TRC_NET, TRC_DUMP, -1, "TransportZMQ::sendStringBuf : sending data (%llu bytes) : [%s]", data.size(), data_dump.c_str());
 	sender_.send(message, zmq::send_flags::none);
 }
 
-/*
-bool TransportZMQ::recv( TRequestID *req_id, bool *isTimeout, char *buf, size_t *size ) {
-	// TODO: обработку таймаутов вынести в Transport
-	zmq::pollitem_t items[] = {
-			{ sender_, 0, ZMQ_POLLIN, 0 }
-	};
-	zmq::message_t message;
-
-	if (zmq::poll(&items[0], 1, 0) > 0) {
-		if (items[0].revents & ZMQ_POLLIN) {
-			zmq::recv_result_t result = sender_.recv(message, zmq::recv_flags::none);
-			if (result) {
-				printf("TransportZMQ::receive : received RESP %llu bytes\n", *result);
-				*size = *result;
-				*isTimeout = false;
-				// TODO: у message должна быть возможность move
-				memcpy(buf, message.data(), message.size());
-			}
-			else {
-				printf("TransportZMQ::receive : error\n");
-				return false;
-			}
-			
-		}
-		return true;
-	}
-	return false;
-}
-*/
 bool TransportZMQ::recv(TSessionID* session_id, bool* isTimeout, char* buf, size_t* size) {
 	// TODO: обработку таймаутов вынести в Transport
 	zmq::pollitem_t items[] = {
@@ -105,10 +86,10 @@ bool TransportZMQ::recv(TSessionID* session_id, bool* isTimeout, char* buf, size
 					unsigned char digit = *((char*)message.data() + i);
 					sprintf(&(data_dump[i*3]), "%02x ", digit);
 				}
-				printf("TransportZMQ::receive : received RESP %llu bytes : [%s]\n", received_size, data_dump.c_str());
+				Log(TRC_NET, TRC_DUMP, -1, "TransportZMQ::receive : received RESP %llu bytes : [%s]", received_size, data_dump.c_str());
 
 				if (received_size < sizeof(TRequestID) + sizeof(TSessionID) + sizeof(TSCPCommandCode)) {
-					printf("TransportZMQ::receive : too short data chunk received\n");
+					Log(TRC_NET, TRC_ERROR, -1, "TransportZMQ::receive : too short data chunk received");
 					return false;
 				}
 				*isTimeout = false;
@@ -121,7 +102,7 @@ bool TransportZMQ::recv(TSessionID* session_id, bool* isTimeout, char* buf, size
 				*size = data_size;
 			}
 			else {
-				printf("TransportZMQ::receive : error\n");
+				Log(TRC_NET, TRC_ERROR, -1, "TransportZMQ::receive : error\n");
 				return false;
 			}
 

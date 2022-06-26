@@ -82,6 +82,7 @@ void Log(int Src, int Svrt, int Line, const char* format, ...)
 	case TRC_GC:   logSource = "GC  "; break;
 	case TRC_DX:   logSource = "DX  "; break;
 	case TRC_SETT: logSource = "SETT"; break;
+	case TRC_NET:  logSource = "NET "; break;
 	}
 
 	// Form verbal severity description

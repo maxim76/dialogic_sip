@@ -1,23 +1,16 @@
+#pragma once
+
 /* Dialogic Header Files */
 #include <gcip.h>
 #include <gclib.h>
 #include <gcisdn.h>
 #include <srllib.h>
 #include <dxxxlib.h>
+
+#include "sessions.hpp"
 //---------------------------------------------------------------------------
 #define YES					1
 #define NO					0
-//---------------------------------------------------------------------------
-#define TRC_CORE	1
-#define TRC_GC		2
-#define TRC_DX		4
-#define TRC_SETT	8
-
-#define TRC_DUMP		0
-#define TRC_INFO		1
-#define TRC_WARNING		2
-#define TRC_ERROR		3
-#define TRC_CRITICAL	4
 //---------------------------------------------------------------------------
 #define LOGSTRSIZE	256
 #define MAX_DEVNAME	64		// Maximum length of device name											*/
@@ -56,14 +49,17 @@
 #define PRM_SCPPORT			13
 #define PRM_IPTDEVICESCNT	14
 //---------------------------------------------------------------------------
-#define DEFAULT_ERRLOG_FILTER	TRC_ERROR
+// Working modes
+#define MODE_AUTORESPONDER	0
+#define MODE_SSP			1
+//---------------------------------------------------------------------------
 #define DEFAULT_CHANNELSCNT		2
 #define DEFAULT_FIRSTCHANNEL	0
 #define DEFAULT_TRACEMASK		255
 #define DEFAULT_SEVERITYFILTER	0
 #define DEFAULT_SENDCALLACK		0
 #define DEFAULT_SENDACM			0
-#define DEFAULT_MODE			0
+#define DEFAULT_MODE			MODE_AUTORESPONDER
 #define DEFAULT_FRAGMENT		"hello.wav"
 #define DEFAULT_SCPIP			"127.0.0.1"
 #define DEFAULT_SCPPORT			10000
@@ -91,41 +87,13 @@ const struct T_ParamDef Parameters[] = {
 		{PRM_IPTDEVICESCNT,		"IPTDevicesCount" },
 };
 //---------------------------------------------------------------------------
-#define MAXGCEVENT	0x100
-#define GCEVENTNAMESIZE	32
-static const char GcEventNames[MAXGCEVENT][GCEVENTNAMESIZE] = {
-	/*0x00*/    "","GCEV_TASKFAIL","GCEV_ANSWERED","GCEV_CALLPROGRESS","GCEV_ACCEPT","GCEV_DROPCALL","GCEV_RESETLINEDEV","GCEV_CALLINFO",
-	/*0x08*/    "GCEV_REQANI","GCEV_SETCHANSTATE","GCEV_FACILITY_ACK","GCEV_FACILITY_REJ","GCEV_MOREDIGITS","","GCEV_SETBILLING","",
-	/*0x10*/    "","","","","","","","GCEV_OPENEX","GCEV_OPENFAIL","","","","","","","",
-	/*0x20*/    "","GCEV_ALERTING","GCEV_CONNECTED","GCEV_ERROR","GCEV_OFFERED","","GCEV_DISCONNECTED","GCEV_PROCEEDING",
-	/*0x28*/    "GCEV_PROGRESSING","GCEV_USRINFO","GCEV_FACILITY","GCEV_CONGESTION","","","GCEV_D_CHAN_STATUS","",
-	/*0x30*/    "","","GCEV_BLOCKED","GCEV_UNBLOCKED","","","","",
-	/*0x38*/    "","","","","","","","",
-	/*0x40*/    "","","GCEV_HOLDCALL","","","","","","","","","","","","","",
-	/*0x50*/    "","","","","","","","","","GCEV_RELEASECALL","","","","","","",
-	/*0x60*/    "","","","","","","GCEV_CALLPROC","","","","","","","","","",
-	/*0x70*/    "","","","","","","","","","","","","","","","",
-	/*0x80*/    "","","","","","","","","","","","","","","","",
-	/*0x90*/    "","","","","","","","","","","","","","","","",
-	/*0xA0*/    "","","","","","","","","","","","","","","","",
-	/*0xB0*/    "","","","","","","","","","","","","","","","",
-	/*0xC0*/    "","","","","","","","","","","","","","","","",
-	/*0xD0*/    "","","","","","","","","","","","","","","","",
-	/*0xE0*/    "","","","","","","","","","","","","","","","",
-	/*0xF0*/    "","","","","","","","","","","","","","","",""
-};
-//---------------------------------------------------------------------------
-#define MAXDXEVENT	10
-#define DXEVENTNAMESIZE	32
-static const char DxEventNames[MAXDXEVENT][DXEVENTNAMESIZE] = { "TDX_PLAY","TDX_RECORD","TDX_GETDIGIT","TDX_DIAL","TDX_CALLP","TDX_CST","TDX_SETHOOK","TDX_WINK","X","TDX_PLAYTONE" };
-//---------------------------------------------------------------------------
-typedef struct {   /////// Дескриптор вызова
+typedef struct {   /////// Р”РµСЃРєСЂРёРїС‚РѕСЂ РІС‹Р·РѕРІР°
 	CRN crn;
 	int SState;
 } T_CALL_INFO;
 
-typedef struct {   /////// Дескриптор ресурса
-	int N;   // хранит индекс массива. Нужно для случая когда приходит указатель на элемент массива и нужно узнать этот индекс
+typedef struct {   /////// Р”РµСЃРєСЂРёРїС‚РѕСЂ СЂРµСЃСѓСЂСЃР°
+	int N;   // С…СЂР°РЅРёС‚ РёРЅРґРµРєСЃ РјР°СЃСЃРёРІР°. РќСѓР¶РЅРѕ РґР»СЏ СЃР»СѓС‡Р°СЏ РєРѕРіРґР° РїСЂРёС…РѕРґРёС‚ СѓРєР°Р·Р°С‚РµР»СЊ РЅР° СЌР»РµРјРµРЅС‚ РјР°СЃСЃРёРІР° Рё РЅСѓР¶РЅРѕ СѓР·РЅР°С‚СЊ СЌС‚РѕС‚ РёРЅРґРµРєСЃ
 	int hdVoice;
 	int hdDti;
 	LINEDEV hdLine;
@@ -135,9 +103,9 @@ typedef struct {   /////// Дескриптор ресурса
 	char CgPN[MAX_NUMSIZE];
 	char CdPN[MAX_NUMSIZE];
 	char RdPN[MAX_NUMSIZE];
-	int reasonCode;	// Причина переадресации
-	int blocked;    // Линия разблокирована/заблокирована
-	int VReady;     // признак готовности голосового ресурса. Будет использватся перед WaitCall т.к. обнаружено что иногде на срабатывает GetRecourceH
+	int reasonCode;	// РџСЂРёС‡РёРЅР° РїРµСЂРµР°РґСЂРµСЃР°С†РёРё
+	int blocked;    // Р›РёРЅРёСЏ СЂР°Р·Р±Р»РѕРєРёСЂРѕРІР°РЅР°/Р·Р°Р±Р»РѕРєРёСЂРѕРІР°РЅР°
+	int VReady;     // РїСЂРёР·РЅР°Рє РіРѕС‚РѕРІРЅРѕСЃС‚Рё РіРѕР»РѕСЃРѕРІРѕРіРѕ СЂРµСЃСѓСЂСЃР°. Р‘СѓРґРµС‚ РёСЃРїРѕР»СЊР·РІР°С‚СЃСЏ РїРµСЂРµРґ WaitCall С‚.Рє. РѕР±РЅР°СЂСѓР¶РµРЅРѕ С‡С‚Рѕ РёРЅРѕРіРґРµ РЅР° СЃСЂР°Р±Р°С‚С‹РІР°РµС‚ GetRecourceH
 	DX_IOTT iott;
 	DX_XPB  xpb;
 	DV_DIGIT  digbuf;
@@ -172,21 +140,15 @@ int stCallCntPerInterval = 0;
 
 T_CHAN_INFO ChannelInfo[MAXCHANS + 1];
 
-void LogWrite( const char *, int Svrt );
-void Log( int Src, int Svrt, int Line, const char *format, ... );
-void LogGC( int Svrt, int Line, int event, const char * );
-void LogDX( int Svrt, int Line, int event, const char * );
-void LogFunc( int Line, const char *FuncName, int ret );
 void init_srl_mode();
 static void intr_hdlr( int receivedSignal );
 void LoadSettings();
-void InitLogFile();
 void InitDialogicLibs();
 void InitNetwork();
 void Deinit();
 void processGlobalCall();
 void processNetwork();
-bool processPacket(unsigned int channel, const char *data, size_t len);
+bool processPacket(TSessionID session_id, const char *data, size_t len);
 bool checkAppExitCondition();
 void process_event();
 void InitChannels();
@@ -200,3 +162,14 @@ void InitDisconnect( int index, int reason = GC_NORMAL_CLEARING );
 void InitNewCall( int index );
 int  reasonCodeIP2reasonCodeDialogic(unsigned int reasonCodeIP);
 void writeStatistics();
+
+/*
+class ChannelManager {
+public:
+	ChannelManager(T_CHAN_INFO* channel_info_ptr);
+private:
+	T_CHAN_INFO *ChannelInfo;
+};
+
+ChannelManager* g_channel_manager_ptr = nullptr;
+*/

@@ -22,12 +22,19 @@
 #endif
 
 #include <algorithm>
+#include <cassert>
+#include <cstdint>
+#include <sstream>
 #include <unordered_map>
 
 #include "callserver.hpp"
+#include "logging.h"
 #include "udp_request.hpp"
 #include "ssp_scp_interface.hpp"
-
+#include <memory>
+#include "sessions.hpp"
+#include "transport.hpp"
+#include "transport_zmq.hpp"
 
 #ifdef WIN32
 #pragma comment(lib, "libsrlmt.lib")
@@ -39,15 +46,14 @@
 
 static int		interrupted = NO;	/* Flag for user interrupted signals		 */
 time_t			start_time;		// To note down the start time
-FILE *fLog;
-FILE *fErrorLog;
-FILE *fStat;
 UDPRequest *pUDPRequest;
+std::unique_ptr<transport::Transport> transport_ptr;
+SessionList g_session_list;
 
 int main( void )
 {
 	time( &start_time );
-	InitLogFile();
+	InitLogFile(DT_GC);
 	Log( TRC_CORE, TRC_INFO, -1, "********** IVR server started ***********" );
 
 	// Set Ctrl+C interruption handler for clean app shutdown
@@ -127,52 +133,6 @@ static void intr_hdlr( int receivedSignal )
 	Log( TRC_CORE, TRC_WARNING, -1, " *******Received User Interrupted Signal *******" );
 	Deinit();
 	interrupted = YES;
-}
-//---------------------------------------------------------------------------
-void InitLogFile()
-{
-	const char * logDir = "./Logs/";
-	// Create directory for log files if it does not exist
-	int res;
-#ifdef _WIN32
-	res = _mkdir( logDir );
-#else
-	res = mkdir( logDir, 0733 );
-#endif
-	if ((res != 0) && (errno != EEXIST))
-	{
-		printf( "Cannot create log dir. Error: %d (%s)\n", errno, strerror(errno) );
-		exit( 1 );
-	}
-
-	char sFN[64];
-	struct tm *tblock;
-	tblock = localtime( &start_time );
-
-	// Full log file
-	sprintf( sFN, "%s/ivrserv_%04d%02d%02d_%02d%02d%02d.txt", logDir, tblock->tm_year + 1900, tblock->tm_mon + 1, tblock->tm_mday, tblock->tm_hour, tblock->tm_min, tblock->tm_sec );
-	if((fLog = fopen( sFN, "w" )) == NULL)
-	{
-		printf( "Cannot create log file. Termination.\n" );
-		exit( 1 );
-	}
-
-	// Errors only
-	sprintf( sFN, "%s/errors_%04d%02d%02d_%02d%02d%02d.txt", logDir, tblock->tm_year + 1900, tblock->tm_mon + 1, tblock->tm_mday, tblock->tm_hour, tblock->tm_min, tblock->tm_sec );
-	if((fErrorLog = fopen( sFN, "w" )) == NULL)
-	{
-		printf( "Cannot create error log file. Termination.\n" );
-		exit( 1 );
-	}
-
-	// Statistics
-	sprintf( sFN, "%s/stat_%04d%02d%02d_%02d%02d%02d.txt", logDir, tblock->tm_year + 1900, tblock->tm_mon + 1, tblock->tm_mday, tblock->tm_hour, tblock->tm_min, tblock->tm_sec );
-	if((fStat = fopen( sFN, "w" )) == NULL)
-	{
-		printf( "Cannot create statistics file. Termination.\n" );
-		exit( 1 );
-	}
-
 }
 //---------------------------------------------------------------------------
 void InitDialogicLibs()
@@ -272,14 +232,14 @@ void Deinit()
 		case PST_CALLING:
 			ChannelInfo[i].PState = PST_RELEASING;
 			ret = gc_DropCall( ChannelInfo[i].Calls[0].crn, GC_NORMAL_CLEARING, EV_ASYNC );
-			LogFunc( i, "gc_DropCall()", ret );
+			LogFunc( i, "gc_DropCall()", (ret==GC_SUCCESS) );
 			break;
 		case PST_PLAY:
 			ret = dx_stopch( ChannelInfo[i].hdVoice, EV_ASYNC );
-			LogFunc( i, "dx_stopch()", ret );
+			LogFunc( i, "dx_stopch()", (ret == GC_SUCCESS));
 			ChannelInfo[i].PState = PST_RELEASING;
 			ret = gc_DropCall( ChannelInfo[i].Calls[0].crn, GC_NORMAL_CLEARING, EV_ASYNC );
-			LogFunc( i, "gc_DropCall()", ret );
+			LogFunc( i, "gc_DropCall()", (ret == GC_SUCCESS));
 			break;
 			/*
 		case PST_TERMINATION:
@@ -291,95 +251,6 @@ void Deinit()
 			LogFunc( i, "gc_Close()", ret );
 			*/
 		}
-	}
-}
-//---------------------------------------------------------------------------
-void Log( int Src, int Svrt, int Line, const char *format, ... )
-{
-	char str[LOGSTRSIZE];	// Full log string
-	char msg[LOGSTRSIZE];	// Message part
-
-	// Form log source part
-	std::string logSource = "";
-	switch(Src)
-	{
-	case TRC_CORE: logSource = "CORE"; break;
-	case TRC_GC:   logSource = "GC  "; break;
-	case TRC_DX:   logSource = "DX  "; break;
-	case TRC_SETT: logSource = "SETT"; break;
-	}
-
-	// Form verbal severity description
-	std::string severityDescr = "";
-	switch(Svrt)
-	{
-	case TRC_DUMP:     severityDescr = "DUMP    "; break;
-	case TRC_INFO:     severityDescr = "INFO    "; break;
-	case TRC_WARNING:  severityDescr = "WARNING "; break;
-	case TRC_ERROR:    severityDescr = "ERROR   "; break;
-	case TRC_CRITICAL: severityDescr = "CRITICAL"; break;
-	}
-
-	// Form message
-	va_list args;
-	va_start( args, format );
-	vsprintf( msg, format, args );
-	va_end( args );
-
-	if(Line >= 0)
-		snprintf( str, LOGSTRSIZE, "[%s] %s [%04d] %s", logSource.c_str(), severityDescr.c_str(), Line, msg );
-	else
-		snprintf( str, LOGSTRSIZE, "[%s] %s [    ] %s", logSource.c_str(), severityDescr.c_str(), msg );
-
-	LogWrite( str, Svrt );
-}
-//---------------------------------------------------------------------------
-void LogGC( int Svrt, int Line, int event, const char *msg )
-{
-	char str[LOGSTRSIZE];
-	char sEvt[GCEVENTNAMESIZE];
-	strncpy( sEvt, GcEventNames[event - DT_GC], GCEVENTNAMESIZE );
-	if(sEvt[0] == 0) snprintf( sEvt, GCEVENTNAMESIZE, "0x%04x", event );
-	snprintf(str, LOGSTRSIZE, "%s %s", sEvt, msg );
-	Log( TRC_GC, Svrt, Line, str );
-}
-//---------------------------------------------------------------------------
-void LogDX( int Svrt, int Line, int event, const char *msg )
-{
-	char str[LOGSTRSIZE];
-	char sEvt[GCEVENTNAMESIZE];
-	strncpy( sEvt, DxEventNames[event - 0x81], GCEVENTNAMESIZE );
-	if(sEvt[0] == 0) snprintf( sEvt, GCEVENTNAMESIZE, "0x%04x", event );
-	snprintf( str, LOGSTRSIZE, "%s %s", sEvt, msg );
-	Log( TRC_DX, Svrt, Line, str );
-}
-//---------------------------------------------------------------------------
-void LogFunc( int Line, const char *FuncName, int ret )
-{
-	char str[LOGSTRSIZE];
-	sprintf( str, "%s : %s", FuncName, (ret == GC_SUCCESS) ? "Ok" : "Error" );
-	Log( TRC_CORE, (ret == GC_SUCCESS) ? 0 : 2, Line, str );
-}
-//---------------------------------------------------------------------------
-void LogWrite( const char *msg, int Svrt )
-{
-	/*
-	// TODO: Implement filtering (non-error log only) if required
-	if((TraceMask & Src) == 0) return;
-	if(Svrt < SeverityFilter)  return;
-	*/
-
-	time_t timer = time( NULL );
-	struct tm *tblock;
-	tblock = localtime( &timer );
-	printf( "%04d/%02d/%02d %02d:%02d:%02d %s\n", tblock->tm_year + 1900, tblock->tm_mon + 1, tblock->tm_mday, tblock->tm_hour, tblock->tm_min, tblock->tm_sec, msg );
-	fprintf( fLog, "%04d/%02d/%02d %02d:%02d:%02d %s\n", tblock->tm_year + 1900, tblock->tm_mon + 1, tblock->tm_mday, tblock->tm_hour, tblock->tm_min, tblock->tm_sec, msg );
-	fflush( fLog );
-
-	if(Svrt >= DEFAULT_ERRLOG_FILTER)
-	{
-		fprintf( fErrorLog, "%04d/%02d/%02d %02d:%02d:%02d %s\n", tblock->tm_year + 1900, tblock->tm_mon + 1, tblock->tm_mday, tblock->tm_hour, tblock->tm_min, tblock->tm_sec, msg );
-		fflush( fErrorLog );
 	}
 }
 //---------------------------------------------------------------------------
@@ -718,7 +589,7 @@ void InitChannels()
 			(absoluteChannelIndex % 4) + 1 );
 		ret = gc_OpenEx( &(ChannelInfo[i].hdLine), FullDevName, EV_ASYNC, (void *)i );
 		sprintf( str, "gc_OpenEx(\"%s\") = %d", FullDevName, ret );
-		LogFunc( i, str, ret );
+		LogFunc( i, str, (ret == GC_SUCCESS));
 		if(ret == GC_SUCCESS)
 		{
 			ChannelInfo[i].iott.io_fhandle = -1;
@@ -738,69 +609,62 @@ void InitNetwork()
 	}
 #endif
 
-	pUDPRequest = new UDPRequest( scpIP, scpPort );
-	if(!pUDPRequest->ready())
-	{
-		fprintf( stderr, "UDPRequest initialization failed\n" );
-		exit( -1 );
+	if (Mode == MODE_SSP) {
+		transport_ptr = transport::createTransportZMQ();
 	}
 }
 //---------------------------------------------------------------------------
 void processNetwork()
 {
-	pUDPRequest->update();
 	bool isTimeout;
 	unsigned int req_id;
+	TSessionID session_id;
 	char data[MAX_DATAGRAM_SIZE];
 	size_t len;
 
-	while(pUDPRequest->recv( &req_id, &isTimeout, data, &len ))
-	{
-		if(!isTimeout)
+	while (transport_ptr->recv(&session_id, &isTimeout, data, &len)) {
+		if (!isTimeout)
 		{
-			Log( TRC_CORE, TRC_DUMP, req_id, "processNetwork() : Recv from SCP (%u bytes)", len );
-			if (!processPacket(req_id, data, len))
+			Log(TRC_CORE, TRC_DUMP, -1, "processNetwork() : Recv from SCP (%u bytes) for session %u", len, session_id);
+			if (!processPacket(session_id, data, len))
 			{
-				Log(TRC_CORE, TRC_WARNING, req_id, "processNetwork() : processPacket failed");
-				InitDisconnect(req_id);
+				Log(TRC_CORE, TRC_WARNING, -1, "processNetwork() : processPacket failed");
 			}
 		}
 		else
 		{
-			Log( TRC_CORE, TRC_WARNING, req_id, "processNetwork() : Request timeout" );
-			InitDisconnect( req_id );
+			Log(TRC_CORE, TRC_WARNING, session_id, "processNetwork() : Request timeout");
+			InitDisconnect(session_id);
 		}
 	}
 }
 //---------------------------------------------------------------------------
-bool processPacket(unsigned int channel, const char *data, size_t len)
+bool processPacket(TSessionID session_id, const char *data, size_t len)
 {
-	ssp_scp::SCPCommand *scpCommand;
-	if (len < sizeof(ssp_scp::SSPEvent))
+	// TODO: если есть флаг создания сессии (напр. для команды MakeCall) то вместо попытки поиска, создать сессию
+	int channel = g_session_list.getChannelBySession(session_id);
+	if (channel == -1) {
+		Log(TRC_CORE, TRC_ERROR, -1, "processPacket() : Channel for session %u is not found", session_id);
+		return false;
+	}
+
+	if (len < sizeof(uint8_t))
 	{
 		Log(TRC_CORE, TRC_ERROR, channel, "processPacket() : Packet size %u is too short to read SCPCommand code", len);
 		return false;
 	}
-	scpCommand = (ssp_scp::SCPCommand *)data;
-	switch (scpCommand->commandCode)
-	{
-	case ssp_scp::SCPCommandCodes::CMD_DROP:
-	{
-		if (len < sizeof(ssp_scp::CmdDrop)) {
-			Log(TRC_CORE, TRC_ERROR, channel, "processPacket() : Packet size %u is too short to read ssp_scp::CmdDrop, expected %u bytes", len, sizeof(ssp_scp::CmdDrop));
-			return false;
-		}
-		ssp_scp::CmdDrop *cmdDrop = (ssp_scp::CmdDrop *)data;
-		Log(TRC_CORE, TRC_INFO, channel, "processPacket() : received command DROP with reason %u", cmdDrop->reason);
-		int reasonCodeDialogic = reasonCodeIP2reasonCodeDialogic(cmdDrop->reason);
-		Log(TRC_CORE, TRC_INFO, channel, "processPacket() : invoking dropCall with reason %d", reasonCodeDialogic);
-		InitDisconnect(channel, reasonCodeDialogic);
-	}
-		break;
-	default:
-		Log(TRC_CORE, TRC_ERROR, channel, "processPacket() : Unknown command %u", scpCommand->commandCode);
-		return false;
-	}
+
+	uint8_t scpCommandCode = data[0];
+
+	std::istringstream payload(std::string(&data[1], len - 1));
+	// TODO: обработка ошибок, что если команда не найдена
+	// Log(TRC_CORE, TRC_ERROR, channel, "processPacket() : Unknown command %u", scpCommandCode);
+
+	const auto& factory = ssp_scp::SCPCommandFactory::GetFactory(scpCommandCode);
+	auto command = factory.Construct(payload);
+	Log(TRC_CORE, TRC_INFO, channel, "processPacket() : received command %s", command->getCommandName().c_str());
+	command->process(channel);
+
 	return true;
 }
 //---------------------------------------------------------------------------
@@ -826,7 +690,7 @@ bool checkAppExitCondition()
 		case PST_NULL:
 		case PST_IDLE:
 			ret = gc_Close( ChannelInfo[i].hdLine );
-			LogFunc( i, "gc_Close()", ret );
+			LogFunc( i, "gc_Close()", (ret == GC_SUCCESS));
 			ChannelInfo[i].PState = PST_SHUTDOWN;
 		}
 
@@ -839,9 +703,7 @@ bool checkAppExitCondition()
 	}
 	if(fCanClose)
 	{
-		fclose( fLog );
-		fclose( fErrorLog );
-		fclose( fStat );
+		CloseLogFiles();
 		return true;
 	}
 	else
@@ -912,7 +774,7 @@ void process_event()
 			LogGC( TRC_INFO, index, evttype, "Channel is unblocked" );
 
 			ret = gc_GetResourceH( ChannelInfo[index].hdLine, &(ChannelInfo[index].hdVoice), GC_VOICEDEVICE );
-			LogFunc( index, "gc_GetResourceH()", ret );
+			LogFunc( index, "gc_GetResourceH()", (ret == GC_SUCCESS));
 			if(ret == GC_SUCCESS)
 			{
 				ChannelInfo[index].VReady = 1;
@@ -922,19 +784,19 @@ void process_event()
 			{
 			}
 			ret = gc_SetAlarmNotifyAll( ChannelInfo[index].hdLine, ALARM_SOURCE_ID_NETWORK_ID, ALARM_NOTIFY );
-			LogFunc( index, "gc_SetAlarmNotifyAll()", ret );
+			LogFunc( index, "gc_SetAlarmNotifyAll()", (ret == GC_SUCCESS));
 			gc_util_insert_parm_val( &parmblkp, IPSET_DTMF, IPPARM_SUPPORT_DTMF_BITMASK, sizeof( char ), IP_DTMF_TYPE_RFC_2833 );
 			ret = gc_SetUserInfo( GCTGT_GCLIB_CHAN, ChannelInfo[index].hdLine, parmblkp, GC_ALLCALLS );
-			LogFunc( index, "gc_SetUserInfo(Set DTMF mode)", ret );
+			LogFunc( index, "gc_SetUserInfo(Set DTMF mode)", (ret == GC_SUCCESS));
 			gc_util_delete_parm_blk( parmblkp );
 			ret = dx_setevtmsk( ChannelInfo[index].hdVoice, DM_DIGITS );
-			LogFunc( index, "dx_setevtmsk()", ret );
+			LogFunc( index, "dx_setevtmsk()", (ret == GC_SUCCESS));
 
 			ChannelInfo[index].blocked = 0;
 			if(ChannelInfo[index].VReady)
 			{
 				ret = gc_WaitCall( ChannelInfo[index].hdLine, NULL, NULL, 0, EV_ASYNC );
-				LogFunc( index, "gc_WaitCall()", ret );
+				LogFunc( index, "gc_WaitCall()", (ret == GC_SUCCESS));
 			}
 			else
 			{
@@ -977,19 +839,13 @@ void process_event()
 			LogGC( TRC_INFO, index, evttype, str );
 			switch(Mode)
 			{
-			case 1:		// SSP mode. Send informing to SCP
-				ssp_scp::Offered messageOffered;
-				messageOffered.sspEvent.eventCode = ssp_scp::SSPEventCodes::OFFERED;
-				strncpy( messageOffered.CgPN, ChannelInfo[index].CgPN, MAX_NUMSIZE );
-				strncpy( messageOffered.CdPN, ChannelInfo[index].CdPN, MAX_NUMSIZE );
-				strncpy( messageOffered.RdPN, ChannelInfo[index].RdPN, MAX_NUMSIZE );
-				messageOffered.redirectionReason = reasonCodeIP;
-
-				char buffer[MAX_DATAGRAM_SIZE];
-				size_t filledSize;
-				messageOffered.pack( buffer, MAX_DATAGRAM_SIZE, &filledSize );
-				Log(TRC_CORE, TRC_DUMP, index, "process_event() : Send Offered event to SCP (%u bytes)", filledSize);
-				pUDPRequest->send( index, buffer, filledSize );
+			case MODE_SSP:
+			{
+				ssp_scp::SSPEventOffered messageOffered(ChannelInfo[index].CgPN, ChannelInfo[index].CdPN, ChannelInfo[index].RdPN, reasonCodeIP);
+				Log(TRC_CORE, TRC_DUMP, index, "process_event() : Send Offered event to SCP");
+				TSessionID session = g_session_list.createSession(index);
+				transport_ptr->send(session, messageOffered);
+			}
 				break;
 			default:	// other modes, that requires connection
 				if(SendCallAck > 0)
@@ -1004,7 +860,7 @@ void process_event()
 					}
 					else
 					{
-						LogFunc( index, "gc_CallAck", 0 );
+						LogFunc( index, "gc_CallAck", true );
 					}
 				}
 				else
@@ -1012,12 +868,12 @@ void process_event()
 					if(SendACM > 0)
 					{
 						ret = gc_AcceptCall( TempCRN, 0, EV_ASYNC );
-						LogFunc( index, "gc_AcceptCall()", ret );
+						LogFunc( index, "gc_AcceptCall()", (ret == GC_SUCCESS));
 					}
 					else
 					{
 						ret = gc_AnswerCall( TempCRN, 0, EV_ASYNC );
-						LogFunc( index, "gc_AnswerCall()", ret );
+						LogFunc( index, "gc_AnswerCall()", (ret == GC_SUCCESS));
 					}
 				}
 			}
@@ -1028,12 +884,12 @@ void process_event()
 			if(SendACM > 0)
 			{
 				ret = gc_AcceptCall( TempCRN, 0, EV_ASYNC );
-				LogFunc( index, "gc_AcceptCall()", ret );
+				LogFunc( index, "gc_AcceptCall()", (ret == GC_SUCCESS));
 			}
 			else
 			{
 				ret = gc_AnswerCall( TempCRN, 0, EV_ASYNC );
-				LogFunc( index, "gc_AnswerCall()", ret );
+				LogFunc( index, "gc_AnswerCall()", (ret == GC_SUCCESS));
 			}
 			break;
 		case GCEV_ACCEPT:
@@ -1042,7 +898,7 @@ void process_event()
 				ChannelInfo[index].Calls[CallNdx].SState = GCST_ACCEPTED;
 			else Log( TRC_GC, TRC_ERROR, index, "CallIndex for CRN not found" );
 			ret = gc_AnswerCall( TempCRN, 0, EV_ASYNC );
-			LogFunc( index, "gc_AnswerCall()", ret );
+			LogFunc( index, "gc_AnswerCall()", (ret == GC_SUCCESS));
 			break;
 
 		case GCEV_ANSWERED:
@@ -1052,25 +908,34 @@ void process_event()
 				ChannelInfo[index].Calls[CallNdx].SState = GCST_CONNECTED;
 				switch(Mode)
 				{
-				case 0:
+				case MODE_AUTORESPONDER:
 					Log( TRC_CORE, TRC_INFO, index, "Mode : 0 (Autoresponder). Default fragment will be played" );
 					if(!InitPlayFragment( index, defaultFragment ))
 					{
 						ret = gc_DropCall( TempCRN, GC_NORMAL_CLEARING, EV_ASYNC );
-						LogFunc( index, "gc_DropCall()", ret );
+						LogFunc( index, "gc_DropCall()", (ret == GC_SUCCESS));
 					}
+					break;
+				case MODE_SSP:
+				{
+					Log(TRC_CORE, TRC_DUMP, index, "process_event() : Send Answered event to SCP");
+					TSessionID session = g_session_list.getSessionByChannel(index);
+					assert(session != UNKNOWN_SESSION);
+					// TODO: if no session found, terminate
+					transport_ptr->send(session, ssp_scp::SSPEventAnswered());
+				}
 					break;
 				default:
 					Log( TRC_CORE, TRC_ERROR, index, "Misconfiguration: unsupported Mode" );
 					ret = gc_DropCall( TempCRN, GC_NORMAL_CLEARING, EV_ASYNC );
-					LogFunc( index, "gc_DropCall()", ret );
+					LogFunc( index, "gc_DropCall()", (ret == GC_SUCCESS));
 				}
 			}
 			else
 			{
 				Log( TRC_GC, TRC_ERROR, index, "CallIndex for CRN not found" );
 				ret = gc_DropCall( TempCRN, GC_NORMAL_CLEARING, EV_ASYNC );
-				LogFunc( index, "gc_DropCall()", ret );
+				LogFunc( index, "gc_DropCall()", (ret == GC_SUCCESS));
 			}
 			break;
 
@@ -1090,7 +955,7 @@ void process_event()
 			{  // Should not be such case
 				LogGC( TRC_ERROR, index, evttype, "CallIndex for CRN not found" );
 				ret = gc_DropCall( TempCRN, GC_NORMAL_CLEARING, EV_ASYNC );
-				LogFunc( index, "gc_DropCall()", ret );
+				LogFunc( index, "gc_DropCall()", (ret == GC_SUCCESS));
 			}
 			else
 			{
@@ -1100,7 +965,7 @@ void process_event()
 					LogGC( TRC_INFO, index, evttype, "Network terminated" );
 					ChannelInfo[index].Calls[CallNdx].SState = GCST_DISCONNECTED;
 					ret = gc_DropCall( TempCRN, GC_NORMAL_CLEARING, EV_ASYNC );
-					LogFunc( index, "gc_DropCall()", ret );
+					LogFunc( index, "gc_DropCall()", (ret == GC_SUCCESS));
 					break;
 				case GCST_DIALING:   // Network rejects || Glare
 					ChannelInfo[index].Calls[CallNdx].SState = GCST_DISCONNECTED;
@@ -1109,7 +974,7 @@ void process_event()
 					else
 						LogGC( TRC_WARNING, index, evttype, "Network rejected outgoing call. GLARE" );
 					ret = gc_DropCall( TempCRN, GC_NORMAL_CLEARING, EV_ASYNC );
-					LogFunc( index, "gc_DropCall()", ret );
+					LogFunc( index, "gc_DropCall()", (ret == GC_SUCCESS));
 					break;
 				case GCST_DISCONNECTED:  // Simul. discconnect
 					LogGC( TRC_WARNING, index, evttype, "Simultaneous disconnect" );
@@ -1119,7 +984,7 @@ void process_event()
 					LogGC( TRC_ERROR, index, evttype, str );
 					ChannelInfo[index].Calls[CallNdx].SState = GCST_DISCONNECTED;
 					ret = gc_DropCall( TempCRN, GC_NORMAL_CLEARING, EV_ASYNC );
-					LogFunc( index, "gc_DropCall()", ret );
+					LogFunc( index, "gc_DropCall()", (ret == GC_SUCCESS));
 				}
 			}
 			break;
@@ -1139,7 +1004,7 @@ void process_event()
 				ChannelInfo[index].Calls[CallNdx].SState = GCST_IDLE;
 			}
 			ret = gc_ReleaseCallEx( TempCRN, EV_ASYNC );
-			LogFunc( index, "gc_ReleaseCallEx()", ret );
+			LogFunc( index, "gc_ReleaseCallEx()", (ret == GC_SUCCESS));
 			break;
 		case GCEV_RELEASECALL:
 			stUsed--;
@@ -1176,19 +1041,19 @@ void process_event()
 				ChannelInfo[index].Calls[i].SState = GCST_NULL;
 			}
 			ret = gc_WaitCall( ChannelInfo[index].hdLine, NULL, NULL, 0, EV_ASYNC );
-			LogFunc( index, "gc_WaitCall()", ret );
+			LogFunc( index, "gc_WaitCall()", (ret == GC_SUCCESS));
 			break;
 		case GCEV_TASKFAIL:
 			LogGC( TRC_ERROR, index, evttype, "" );
 			ChannelInfo[index].blocked = 0;
 			ret = gc_ResultInfo( &metaevent, &gc_error_info );
-			LogFunc( index, "gc_ResultInfo()", ret );
+			LogFunc( index, "gc_ResultInfo()", (ret == GC_SUCCESS));
 			if(ret == GC_SUCCESS)
 			{
 				LogGC_INFO( index, &gc_error_info );
 			}
 			ret = gc_ResetLineDev( ChannelInfo[index].hdLine, EV_ASYNC );
-			LogFunc( index, "gc_ResetLineDev()", ret );
+			LogFunc( index, "gc_ResetLineDev()", (ret == GC_SUCCESS));
 			break;
 		case GCEV_PROCEEDING:
 			LogGC( TRC_INFO, index, evttype, "" );
@@ -1218,19 +1083,23 @@ void process_event()
 			}
 			else
 			{
+				switch(Mode) {
+				case MODE_AUTORESPONDER:
+					InitDisconnect(index);
+					break;
+				case MODE_SSP:
+					ssp_scp::SSPEventOnPlayFinished onPlayFinished(ATDX_TERMMSK(hdDev));
+					Log(TRC_CORE, TRC_DUMP, index, "process_event() : Send onPlayFinished event to SCP");
+					TSessionID session = g_session_list.getSessionByChannel(index);
+					assert(session != UNKNOWN_SESSION);
+					transport_ptr->send(session, onPlayFinished);
+					break;
+				}
+				/*
+				* этот блок был до разделения на Autoresponder/SSP
 				switch(ChannelInfo[index].PState)
 				{
 				case PST_PLAY:
-					/*
-					ret = dx_play( ChannelInfo[index].hdVoice, &ChannelInfo[index].iott, NULL, RM_SR8 | EV_ASYNC );
-					LogFunc( index, "dx_play()", ret );
-					if(ret != GC_SUCCESS)
-					{
-						close( ChannelInfo[index].iott.io_fhandle );
-						ret = gc_DropCall( ChannelInfo[index].Calls[0].crn, GC_NORMAL_CLEARING, EV_ASYNC );
-						LogFunc( index, "gc_DropCall()", ret );
-					}
-					*/
 					InitDisconnect( index );
 					break;
 				default:
@@ -1238,10 +1107,8 @@ void process_event()
 					LogFunc( index, "close()", ret );
 					ChannelInfo[index].iott.io_fhandle = -1;
 					ChannelInfo[index].VState = VST_IDLE;
-					//ChannelInfo[index].PState = PST_IDLE;
-						//ret = gc_DropCall(ChannelInfo[index].Calls[0].crn,GC_NORMAL_CLEARING,EV_ASYNC);
-					//LogFunc(index, "gc_DropCall()", ret);
 				}
+				*/
 			}
 			break;
 		case TDX_GETDIG:
@@ -1334,13 +1201,13 @@ int GetSIPRdPN( GC_PARM_BLK	*paramblkp, std::string & RdPN, std::string & reason
 void RegNewCall( int LineNo, CRN crn, int State )
 {
 	int i;
-	// ���������� ��������� ������ �� ������� ������
+	// Вытолкнуть имеющиеся вызовы на позицию вглубь
 	for(i = MAX_CALLS - 1; i > 0; i--)
 	{
 		ChannelInfo[LineNo].Calls[i].crn = ChannelInfo[LineNo].Calls[i - 1].crn;
 		ChannelInfo[LineNo].Calls[i].SState = ChannelInfo[LineNo].Calls[i - 1].SState;
 	}
-	// ����� ����� �������� � ������� �������
+	// Новый вызов записать в нулевую позицию
 	ChannelInfo[LineNo].Calls[0].crn = crn;
 	ChannelInfo[LineNo].Calls[0].SState = State;
 }
@@ -1373,7 +1240,7 @@ bool InitPlayFragment( int index, const char *filename )
 		ChannelInfo[index].iott.io_length = -1;
 		ChannelInfo[index].xpb.wFileFormat = FILE_FORMAT_WAVE;
 		ret = dx_playiottdata( ChannelInfo[index].hdVoice, &(ChannelInfo[index].iott), NULL, &(ChannelInfo[index].xpb), EV_ASYNC );
-		LogFunc( index, "dx_playiottdata()", ret );
+		LogFunc( index, "dx_playiottdata()", (ret == GC_SUCCESS));
 		if(ret != GC_SUCCESS)
 		{
 			close( ChannelInfo[index].iott.io_fhandle );
@@ -1398,14 +1265,14 @@ void InitDisconnect( int N, int reason )
 	int ret;
 	ChannelInfo[N].PState = PST_RELEASING;
 	ret = gc_DropCall( ChannelInfo[N].Calls[0].crn, reason, EV_ASYNC );
-	LogFunc( N, "gc_DropCall()", ret );
+	LogFunc( N, "gc_DropCall()", (ret == GC_SUCCESS));
 }
 //---------------------------------------------------------------------------------
 void InitNewCall( int N )
 {
 	int ret;
 	ret = gc_MakeCall( ChannelInfo[N].hdLine, &(ChannelInfo[N].Calls[0].crn), NULL, &(ChannelInfo[N].makecallblk), 15, EV_ASYNC );
-	LogFunc( N, "gc_MakeCall()", ret );
+	LogFunc( N, "gc_MakeCall()", (ret == GC_SUCCESS));
 	if(ret == GC_SUCCESS)
 	{
 		ChannelInfo[N].Calls[0].SState = GCST_DIALING;
@@ -1433,6 +1300,7 @@ int  reasonCodeIP2reasonCodeDialogic(unsigned int reasonCodeIP)
 //---------------------------------------------------------------------------------
 void writeStatistics()
 {
+	/*
 	struct tm *tblock;
 	tblock = localtime( &start_time );
 
@@ -1440,5 +1308,33 @@ void writeStatistics()
 		tblock->tm_year + 1900, tblock->tm_mon + 1, tblock->tm_mday, tblock->tm_hour, tblock->tm_min, tblock->tm_sec,
 		TotalChannels, stUnblocked, stUsed );
 	fflush( fStat );
+	*/
+	LogStat(TotalChannels, stUnblocked, stUsed);
 }
 //---------------------------------------------------------------------------------
+namespace commands {
+
+void Answer(int channel) {
+	if (SendACM > 0)
+	{
+		int ret = gc_AcceptCall(ChannelInfo[channel].Calls[0].crn, 0, EV_ASYNC);
+		LogFunc(channel, "gc_AcceptCall()", (ret == GC_SUCCESS));
+	}
+	else
+	{
+		int ret = gc_AnswerCall(ChannelInfo[channel].Calls[0].crn, 0, EV_ASYNC);
+		LogFunc(channel, "gc_AnswerCall()", (ret == GC_SUCCESS));
+	}
+}
+
+void PlayFragment(int channel, const std::string& fragment) {
+	InitPlayFragment(channel, fragment.c_str());
+}
+
+void DropCall(int channel, int reason) {
+	int reasonCodeDialogic = reasonCodeIP2reasonCodeDialogic(reason);
+	Log(TRC_CORE, TRC_INFO, channel, "DropCall() : invoking dropCall with reason %d", reasonCodeDialogic);
+	InitDisconnect(channel, reasonCodeDialogic);
+}
+
+} // namespace commands

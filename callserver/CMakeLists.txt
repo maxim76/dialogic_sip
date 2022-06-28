@@ -10,4 +10,4 @@ include_directories("C:/Program Files (x86)/Dialogic/HMP/inc")
 link_directories("C:/Program Files (x86)/Dialogic/HMP/lib")
 
 # Define projects/executables
-add_executable(callserver callserver.cpp)
+add_executable(callserver callserver.cpp callserver.hpp transport_zmq.cpp transport_zmq.hpp transport.hpp sessions.hpp sessions.cpp)

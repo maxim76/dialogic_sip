@@ -24,3 +24,10 @@ yum install glibc-devel.i686
 ##RHEL6:
 - install devtoolset-2 and use it (source /opt/rh/devtoolset-2/enable)
 - instal 32-bit libstdc++-devel (yum install --nogpgcheck devtoolset-2-libstdc++-devel.i686)
+
+##Windows (MSVC solution only)
+git clone https://github.com/Microsoft/vcpkg
+cd vcpkg
+bootstrap-vcpkg.bat
+vcpkg install cppzmq:x64-windows
+vcpkg.exe integrate install
